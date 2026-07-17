@@ -46,6 +46,10 @@ A pain to solve, doubling as a pilot. Trusted contacts routinely share download 
   - **intent:** The pipeline defaults to not advancing a file whenever a step cannot complete safely, and never trusts attacker-supplied type or name metadata.
   - **success:** An incomplete download, disk-full, or scanner-unavailable condition never reaches the final store; a declared-type/real-bytes mismatch is rejected or quarantined; stored files are sanitized-named and non-executable. (FR-17, FR-18; AD-6, AD-7, AD-15)
 
+- **CAP-8 — Policy settings**
+  - **intent:** The operator can view and adjust the pipeline's tunable policy values (size/archive caps, redirect hops, scanner-signature freshness, concurrency and per-sender rate, the VirusTotal flag and outage policies, and backup cadence/retention) from the dashboard, and the worker honors changes without a restart.
+  - **success:** Editing a policy value in the dashboard changes the worker's behavior on the next relevant operation with no restart; secrets (Telegram/VirusTotal keys) are never exposed in this surface. (FR-19; AD-17, AD-2)
+
 ## Constraints
 
 - **Whitelist-gated on both sides, narrow by design.** Only whitelisted senders and whitelisted link shapes are ever fetched; the whitelists are the product, not a tunable setting. Patterns are exact-domain (optional path prefix) and/or extension allowlist — no regex, no wildcard TLD (AD-12).
@@ -77,11 +81,16 @@ On real messages, a whitelisted contact's whitelisted link reliably ends as a sc
 - 50MB is the effective delivery ceiling (Telegram standard `sendDocument` limit).
 - The "Why" framing (trusted contacts sharing build/asset/document links) is inferred from the brief and unconfirmed by a real end user.
 
+## Resolved Policy Defaults
+
+*Seeded into the `settings` table (AD-17), editable via the dashboard (CAP-8), read live by the worker:*
+
+- Caps: `max_download`=200MB · `max_uncompressed`=500MB · `max_file_count`=1000 · `max_nesting_depth`=3 · `max_redirect_hops`=5 · `scanner_sig_max_age`=48h.
+- Throughput: `max_concurrent`=2 · `per_sender_rate`=10/min.
+- Scan policy: VirusTotal flag on a ClamAV-clean file → **hard-fail** to quarantine; VirusTotal unreachable → **hold** the file (needs a release/retry path).
+- Operational: `backup_cadence`=daily · `events_retention`=90d · process supervisor=pm2 (deploy-level).
+
 ## Open Questions
 
-- Concrete policy values: max download / uncompressed / file-count / nesting caps, redirect hop limit, scanner-signature freshness threshold, per-sender rate and max-concurrent numbers (PRD OQ-3/5/6/12; spine Deferred).
-- Reputation-lookup semantics: does a VirusTotal hash flag on a ClamAV-clean file hard-fail to quarantine, or warn only (PRD OQ-2, FR-6)?
-- Reputation-outage policy: when VirusTotal is unreachable, hold the file or degrade to local-scan-only (PRD OQ-7, AD-6)?
-- Operational tuning: process supervisor, backup cadence/target, and `events` retention window (spine AD-16, Deferred).
-- Operational procedure for a banned secondary number, which is unrecoverable in code (PRD OQ-9; addendum §F).
-- Which secondary WhatsApp number and Telegram bot/chat-id setup (PRD OQ-8).
+- Operational procedure for a banned secondary number, which is unrecoverable in code (PRD OQ-9; addendum §F). *Deferred.*
+- Which secondary WhatsApp number and Telegram bot/chat-id setup — runtime config; the operator will provide later / capture the `chat_id` via the dashboard. *Deferred, not a build blocker.*

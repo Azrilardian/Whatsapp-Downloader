@@ -35,7 +35,7 @@ Directory mapping: `worker/` = the pipeline + filters; `dashboard/` = the Next.j
 ### AD-2 — Single writer per data domain `[ADOPTED]`
 - **Binds:** all persisted state
 - **Prevents:** two writers racing the same rows; ambiguous ownership.
-- **Rule:** the **worker** is the sole writer of pipeline state — the `items` and `events` tables (AD-14) and the worker-owned auth store (AD-9). The **dashboard** writes **only** the `contacts` and `link_patterns` tables. Neither writes the other's domain. The worker reads the whitelist tables **fresh per message** and never caches them across messages (FR-11).
+- **Rule:** the **worker** is the sole writer of pipeline state — the `items` and `events` tables (AD-14) and the worker-owned auth store (AD-9). The **dashboard** writes **only** the operator-config tables: `contacts`, `link_patterns`, and `settings` (AD-17). Neither writes the other's domain. The worker reads the whitelist and settings tables **live** (whitelists fresh per message; settings at the relevant operation) and never caches them across restarts (FR-11, AD-17).
 
 ### AD-3 — SQLite in WAL mode, bounded waits
 - **Binds:** every DB connection
@@ -101,6 +101,7 @@ Directory mapping: `worker/` = the pipeline + filters; `dashboard/` = the Next.j
   - **`items`** — one row per ingested candidate, PK `item_id` (UUIDv4). Holds the single `status` (AD-5), `sender_jid`, `source_url`, `url_hash` (pre-download dedup), `content_sha256` (nullable until downloaded), `filename`, `size_bytes`, `scan_result`, `created_at`, `updated_at`. **This row is the single status holder.**
   - **`events`** — append-only audit log, PK `event_id` (UUIDv4), FK `item_id`, `event_type`, `detail`, `created_at`. Many events per item; rows are never updated.
   - **`contacts`**, **`link_patterns`** — operator whitelists (dashboard-writable, AD-2).
+  - **`settings`** — key/value policy store (dashboard-writable, AD-17), seeded with defaults by migration.
   - Baileys auth state is **not** in this DB (AD-9) — it is a separate worker-owned store.
 
 ### AD-15 — Fail-closed startup reconciliation
@@ -112,6 +113,13 @@ Directory mapping: `worker/` = the pipeline + filters; `dashboard/` = the Next.j
 - **Binds:** deployment, durability
 - **Prevents:** the always-on worker dying silently, or the source-of-truth data being unrecoverable — dimensions a pipeline-focused design leaves silent.
 - **Rule:** the worker runs under a process supervisor that auto-restarts it (safe resume via AD-15); the SQLite file and the `final/` store are backed up on a schedule; the `events` log has a defined retention. Concrete supervisor, backup cadence, and retention window are pilot-tunable (see Deferred).
+
+### AD-17 — Policy values live in a dashboard-editable settings store
+- **Binds:** all tunable policy values; the dashboard; the worker
+- **Prevents:** policy limits being hardcoded (unchangeable without a redeploy) or, worse, secrets being pushed into a dashboard-read table.
+- **Rule:** all tunable policy values live in the `settings` table, seeded with the defaults below and edited via the dashboard; the worker reads them **live** so changes apply with no restart (same discipline as whitelists, AD-2). **Secrets (Telegram token, VirusTotal API key) never live in `settings`** — they stay in `.env` (AD-9). The process supervisor and backup *mechanism* are deploy-level, not settings. Because settings are security-relevant and the dashboard has no auth in v1, this relies on the local-only, single-operator trust model (NFR-6).
+  - Seeded defaults: `max_download`=200MB · `max_uncompressed`=500MB · `max_file_count`=1000 · `max_nesting_depth`=3 · `max_redirect_hops`=5 · `scanner_sig_max_age`=48h · `max_concurrent`=2 · `per_sender_rate`=10/min · `vt_flag_policy`=hard-fail · `vt_outage_policy`=hold · `events_retention`=90d · `backup_cadence`=daily.
+  - A held file (`vt_outage_policy`=hold) needs a release/retry path: re-check when VirusTotal returns, or manual release in the dashboard.
 
 ### Dependency direction
 
@@ -205,12 +213,13 @@ erDiagram
 | Connection resilience (FR-15, FR-14) | `worker/` (session) | AD-9, AD-15 |
 | Fail-safe & integrity (FR-17, FR-18) | `worker/pipeline`, `worker/scanner` | AD-6, AD-7, AD-15 |
 | Operational (always-on, durability) | host / process supervisor | AD-16 |
+| Policy settings (tunable limits) | `dashboard/` (write) · `worker/` (live read) | AD-17, AD-2 |
 
 ## Deferred
 
-- **Concrete policy values** — max download/uncompressed/file-count/nesting caps, redirect hop limit, scanner-signature freshness threshold, per-sender rate and max-concurrent numbers. Config keys (AD-13, conventions); tuned at build, not fixed here.
-- **Reputation-outage policy** (hold vs. degrade to local-scan-only) — a config-driven branch in `worker/scanner`; default is fail-closed/hold (AD-6). PRD OQ-7.
 - **Banned-number recovery** — operational procedure, not code (PRD OQ-9; addendum §F).
 - **Multi-user, hosting, remote access, >50MB relay** — Non-Goals; no architecture until a v2 reopens them.
 - **Migration tooling choice** — which migration runner the worker uses (AD-4 fixes ownership, not the tool).
-- **Operational tuning** — the concrete process supervisor, backup cadence/target, and `events` retention window (AD-16 fixes that these exist, not their values).
+- **Backup mechanism** — the concrete backup target/tooling and the process supervisor are deploy-level (AD-16); the *cadence* and *retention* values are now settings (AD-17).
+
+*(Resolved and now fixed as seeded settings, AD-17: all policy caps, redirect hops, scanner freshness, concurrency/rate, VT-flag = hard-fail, VT-outage = hold, backup cadence = daily, retention = 90d.)*

@@ -200,6 +200,16 @@ When the WhatsApp session requires a fresh QR, the Dashboard displays a scannabl
 **Consequences (testable):**
 - On a session-invalidated state, a QR is rendered as an image in the Dashboard (not a terminal print) and a Telegram alert is sent; the system does not silently loop trying to reconnect.
 
+#### FR-19: Policy settings management
+The Operator can view and adjust the pipeline's tunable policy values from the Dashboard, and the worker honors changes without a restart.
+
+**Consequences (testable):**
+- The Dashboard exposes editable settings for the size/archive caps, redirect hop limit, scanner-signature freshness, max-concurrent and per-sender rate, the VirusTotal flag policy (hard-fail vs. warn) and outage policy (hold vs. degrade), and backup cadence / event retention; edits persist to the `settings` table.
+- A changed value takes effect on the worker's next relevant operation with no restart (worker reads settings live).
+- Secrets (Telegram token, VirusTotal API key) are **not** exposed or stored in this surface — they remain in the gitignored `.env`.
+
+**Notes:** `[NOTE FOR PM]` Settings are security-relevant; this relies on the local-only, single-operator trust model (no dashboard auth in v1).
+
 ### 4.6 Connection Resilience
 
 **Description:** The WhatsApp session recovers from transient disconnects on its own and only demands human action (re-pair) when it genuinely must, without raising ban risk. *Recovery mechanism detail (per-disconnect-reason handling, backoff, auth-state storage) is specified in `addendum.md`.*
@@ -281,18 +291,17 @@ The system classifies files by actual content, sanitizes stored names, and never
 
 ## 8. Open Questions
 
+**Resolved** (seeded as `settings` defaults, editable via FR-19; see architecture AD-17):
+- Reputation-flag (OQ2): **hard-fail** to quarantine. Reputation-outage (OQ7): **hold** the file.
+- Caps (OQ3): download 200MB · uncompressed 500MB · file-count 1000 · nesting depth 3. Redirect hops (OQ5): 5. Scanner freshness (OQ6): 48h.
+- Rate/concurrency (OQ12): max-concurrent 2 · per-sender 10/min. Dedup basis (OQ4): URL hash pre-download + content SHA-256 post-download (AD-10). Pattern grammar (OQ11): exact-domain/prefix + extension allowlist, no regex/wildcard (AD-12).
+- Operational: process supervisor pm2 (deploy) · backup daily · event retention 90d.
+
+**Still open:**
 1. Confirm/replace the `[ASSUMPTION]` problem framing carried from the brief (§1) with the real use case.
-2. Reputation-lookup flag semantics (FR-6): hard-fail to quarantine, or warn-only?
-3. Configured caps (FR-3, FR-7): max download size, max uncompressed archive size, cumulative file count, and max archive **nesting depth** — concrete values.
-4. Dedup basis (FR-4): match on URL, on content hash, or both?
-5. Network-safety policy (FR-16): max redirect hops, and the exact private/reserved IP ranges to block.
-6. Scanner freshness threshold (FR-6): how old may ClamAV signatures be before a file is failed-closed?
-7. Reputation-outage policy (FR-17): when VirusTotal is unreachable, hold the file or proceed on local scan only?
-8. Which secondary WhatsApp number, and Telegram bot/chat-id setup (operational, from brief §10).
-9. Operational procedure when the secondary number is banned (unrecoverable) — how does the Operator recover the flow?
-10. Sender-identity trust (FR-1): how is a whitelisted sender verified — can a JID/display be spoofed, and does that change the trust model?
-11. Link-pattern grammar (FR-2): how are patterns expressed and matched, and how do we prevent an over-permissive pattern from acting as a wildcard?
-12. Rate / concurrency caps: max in-flight downloads and per-sender message rate, to bound resource use and abuse.
+2. Sender-identity trust (FR-1): how is a whitelisted sender verified — can a JID/display be spoofed, and does that change the trust model?
+3. Which secondary WhatsApp number, and Telegram bot/chat-id setup (operational, from brief §10) — Operator to provide later / capture `chat_id` via the dashboard.
+4. Operational procedure when the secondary number is banned (unrecoverable) — how does the Operator recover the flow?
 
 ## 9. Assumptions Index
 
