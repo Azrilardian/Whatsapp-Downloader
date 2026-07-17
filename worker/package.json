@@ -1,0 +1,24 @@
+{
+  "name": "@wadl/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "start:once": "tsx src/index.ts --once",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wadl/shared": "*",
+    "baileys": "~6.7.0",
+    "clamscan": "2.4.0",
+    "file-type": "^22.0.0",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/qrcode": "^1.5.5",
+    "tsx": "^4.19.0",
+    "typescript": "~5.9.0"
+  }
+}
