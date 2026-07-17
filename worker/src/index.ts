@@ -10,6 +10,7 @@ import {
   DB_PATH,
   MIGRATIONS_DIR,
 } from './paths.ts';
+import { startWhatsAppSession } from './session.ts';
 
 // Secrets come from the gitignored .env (AD-9); absence is fine at scaffold
 // stage — nothing here needs a secret yet.
@@ -38,10 +39,15 @@ db.prepare(
 
 console.log(`worker ready — db=${DB_PATH} (WAL, busy_timeout)`);
 
-// The Baileys session (task 2), pipeline filters (epics 2-4), and supervisor
-// integration (task 5) attach here in later tasks.
+// --once verifies scaffold/migrations without opening a WhatsApp socket
+// (used by CI/local checks — task 1's verification path).
 if (process.argv.includes('--once')) {
   db.close();
   process.exit(0);
 }
+
+// Story 1.2: pair/reconnect the dedicated secondary number. Pipeline filters
+// (epics 2-4) and the full reconnection policy (Story 1.3) attach in later
+// tasks.
+await startWhatsAppSession(db);
 setInterval(() => {}, 1 << 30); // keep the always-on process alive
