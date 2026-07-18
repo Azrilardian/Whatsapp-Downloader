@@ -12,6 +12,7 @@ import {
   MIGRATIONS_DIR,
 } from './paths.ts';
 import { startWhatsAppSession } from './session.ts';
+import { reconcileOnStartup } from './reconcile.ts';
 
 // .env (AD-9 secrets) is loaded inside paths.ts, before WADL_DATA_DIR/
 // WADL_DB_PATH are read — see the comment there for why it can't happen here.
@@ -37,6 +38,17 @@ db.prepare(
 ).run(randomUUID(), null, 'worker_started', `schema v${to}`, nowIso());
 
 console.log(`worker ready — db=${DB_PATH} (WAL, busy_timeout)`);
+
+// AD-15: resolve every non-terminal item and rebuild the bounded queue from
+// `items` status before anything else runs — a crash mid-pipeline must never
+// leave an item trusted or a file mislocated across a restart.
+const { queue, resolved } = reconcileOnStartup(db, {
+  staging: STAGING_DIR,
+  final: FINAL_DIR,
+  quarantine: QUARANTINE_DIR,
+  extract: EXTRACT_DIR,
+});
+console.log(`startup reconciliation: ${resolved} item(s) resolved, queue rebuilt (${queue.length})`);
 
 // --once verifies scaffold/migrations without opening a WhatsApp socket
 // (used by CI/local checks — task 1's verification path).
