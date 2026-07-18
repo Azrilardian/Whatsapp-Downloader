@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
@@ -17,23 +17,50 @@ import { BAILEYS_AUTH_DIR } from './paths.ts';
 const AUTH_DB_PATH = join(BAILEYS_AUTH_DIR, 'auth.db');
 export const QR_IMAGE_PATH = join(BAILEYS_AUTH_DIR, 'pairing-qr.png');
 
+// FR-15/AD-9: transient disconnects back off and retry, capped so a dead
+// network never becomes a tight reconnect loop.
+const MAX_RECONNECT_ATTEMPTS = 5;
+const BASE_DELAY_MS = 1_000;
+const MAX_DELAY_MS = 30_000;
+
 function recordEvent(db: Db, eventType: string, detail: string): void {
   db.prepare(
     'INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)',
   ).run(randomUUID(), null, eventType, detail, nowIso());
 }
 
+function clearAuthStore(): void {
+  for (const suffix of ['', '-wal', '-shm']) {
+    rmSync(AUTH_DB_PATH + suffix, { force: true });
+  }
+}
+
+export type ReconnectDecision =
+  | { action: 'stop' }
+  | { action: 'clear_and_restart' }
+  | { action: 'restart' }
+  | { action: 'backoff'; delayMs: number }
+  | { action: 'give_up' };
+
+// FR-15/AD-9 policy, pure so it's independently checkable — see check-reconnect-policy.ts.
+export function classifyDisconnect(
+  statusCode: number | undefined,
+  reconnectAttempt: number,
+): ReconnectDecision {
+  if (statusCode === DisconnectReason.loggedOut) return { action: 'stop' };
+  if (statusCode === DisconnectReason.badSession) return { action: 'clear_and_restart' };
+  if (statusCode === DisconnectReason.restartRequired) return { action: 'restart' };
+  if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) return { action: 'give_up' };
+  return { action: 'backoff', delayMs: Math.min(BASE_DELAY_MS * 2 ** reconnectAttempt, MAX_DELAY_MS) };
+}
+
 /**
- * Story 1.2: pair the dedicated secondary number by scanning a QR (FR-14,
- * partial) using a worker-owned auth store (AD-9). Story 1.3's full
- * reconnection policy (backoff/cap, restartRequired, badSession, loggedOut)
- * is layered in a later task; this starts the session and reconnects once
- * on a transient close so first pairing is resilient to a dropped socket.
+ * Story 1.3: classify each disconnect and react per FR-15/AD-9 —
+ * transient -> backoff + retry cap; restartRequired -> reconnect once;
+ * badSession -> wipe auth store + restart pairing; loggedOut -> stop
+ * auto-reconnect and flag for re-pair.
  */
-export async function startWhatsAppSession(
-  db: Db,
-  reconnectsRemaining = 1,
-): Promise<WASocket> {
+export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promise<WASocket> {
   mkdirSync(BAILEYS_AUTH_DIR, { recursive: true });
 
   const auth = useSqliteAuthState(AUTH_DB_PATH);
@@ -70,21 +97,47 @@ export async function startWhatsAppSession(
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
       recordEvent(db, 'connection_close', `status=${statusCode ?? 'unknown'}`);
-
-      if (statusCode === DisconnectReason.loggedOut) {
-        console.log('session logged out — re-pair required (surfaced fully in Story 1.3/Epic 5)');
-        auth.close();
-        return;
-      }
-
-      // Transient/unspecified close: reconnect once so first pairing survives
-      // a dropped socket. The full backoff+cap policy lands in Story 1.3.
-      console.log('connection closed, reconnecting once...');
       auth.close();
-      if (reconnectsRemaining > 0) {
-        void startWhatsAppSession(db, reconnectsRemaining - 1).catch((err) => {
-          console.error('WhatsApp reconnection failed:', err);
-        });
+
+      const decision = classifyDisconnect(statusCode, reconnectAttempt);
+
+      switch (decision.action) {
+        case 'stop':
+          console.log('session logged out — auto-reconnect stopped, re-pair required');
+          recordEvent(db, 're_pair_required', 'logged out');
+          break;
+
+        case 'clear_and_restart':
+          console.log('bad session — clearing auth store and restarting pairing');
+          recordEvent(db, 're_pair_required', 'bad session, auth store cleared');
+          clearAuthStore();
+          void startWhatsAppSession(db, 0).catch((err) => {
+            console.error('WhatsApp restart after bad session failed:', err);
+          });
+          break;
+
+        case 'restart':
+          console.log('restart required — reconnecting once');
+          void startWhatsAppSession(db, 0).catch((err) => {
+            console.error('WhatsApp reconnect after restartRequired failed:', err);
+          });
+          break;
+
+        case 'give_up':
+          console.log(`reconnect cap (${MAX_RECONNECT_ATTEMPTS}) reached — giving up`);
+          recordEvent(db, 'reconnect_cap_reached', `after ${reconnectAttempt} attempts`);
+          break;
+
+        case 'backoff':
+          console.log(
+            `connection closed, reconnecting in ${decision.delayMs}ms (attempt ${reconnectAttempt + 1}/${MAX_RECONNECT_ATTEMPTS})...`,
+          );
+          setTimeout(() => {
+            void startWhatsAppSession(db, reconnectAttempt + 1).catch((err) => {
+              console.error('WhatsApp reconnection failed:', err);
+            });
+          }, decision.delayMs);
+          break;
       }
     }
   });
