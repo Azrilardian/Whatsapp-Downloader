@@ -26,6 +26,12 @@ export default function Home() {
               Connected to the shared SQLite store. Seeded policy settings:
             </p>
             <table className="mt-3 w-full text-sm">
+              <thead>
+                <tr>
+                  <th scope="col" className="text-left">Setting</th>
+                  <th scope="col" className="text-right">Value</th>
+                </tr>
+              </thead>
               <tbody>
                 {settings.map((s) => (
                   <tr key={s.key} className="border-t border-neutral-200 dark:border-neutral-800">

@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { openDb, runMigrations, nowIso } from '@wadl/shared';
 import {
@@ -11,17 +12,15 @@ import {
   MIGRATIONS_DIR,
 } from './paths.ts';
 
-// Secrets come from the gitignored .env (AD-9); absence is fine at scaffold
-// stage — nothing here needs a secret yet.
-try {
-  process.loadEnvFile('.env');
-} catch {
-  // no .env yet — nothing to load
-}
+// .env (AD-9 secrets) is loaded inside paths.ts, before WADL_DATA_DIR/
+// WADL_DB_PATH are read — see the comment there for why it can't happen here.
 
 for (const dir of [STAGING_DIR, FINAL_DIR, QUARANTINE_DIR, EXTRACT_DIR, BAILEYS_AUTH_DIR]) {
   mkdirSync(dir, { recursive: true });
 }
+// An overridden WADL_DB_PATH may point at a nested path whose parent doesn't
+// exist yet (it isn't necessarily under one of the roots created above).
+mkdirSync(dirname(DB_PATH), { recursive: true });
 
 // AD-4: the worker owns the schema and runs versioned migrations at startup.
 const db = openDb(DB_PATH);

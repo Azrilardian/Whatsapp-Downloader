@@ -19,6 +19,8 @@ export function runMigrations(db: Db, migrationsDir: string): MigrationResult {
     .filter((f) => MIGRATION_FILE.test(f))
     .sort((a, b) => versionOf(a) - versionOf(b));
 
+  assertUniqueVersions(files);
+
   const from = db.pragma('user_version', { simple: true }) as number;
   const applied: string[] = [];
   let current = from;
@@ -36,6 +38,18 @@ export function runMigrations(db: Db, migrationsDir: string): MigrationResult {
   }
 
   return { from, to: current, applied };
+}
+
+function assertUniqueVersions(files: string[]): void {
+  const seen = new Map<number, string>();
+  for (const file of files) {
+    const version = versionOf(file);
+    const prior = seen.get(version);
+    if (prior) {
+      throw new Error(`duplicate migration version ${version}: ${prior} and ${file}`);
+    }
+    seen.set(version, file);
+  }
 }
 
 function versionOf(file: string): number {

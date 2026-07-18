@@ -10,7 +10,7 @@ const DB_PATH =
 
 export function openDashboardDb(): Db | null {
   if (!existsSync(DB_PATH)) return null;
-  return openDb(DB_PATH, { fileMustExist: true });
+  return openDb(DB_PATH, { fileMustExist: true, readonly: true });
 }
 
 export function readSettings(): SettingRow[] | null {

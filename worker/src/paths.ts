@@ -3,6 +3,18 @@ import { dirname, join } from 'node:path';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+// Load .env here, before WADL_DATA_DIR/WADL_DB_PATH are read below — static
+// imports are hoisted and this module's top-level code runs before any
+// statement in an importing file, so loading .env in the importer (e.g.
+// index.ts) after `import ... from './paths.ts'` would be too late. Resolved
+// against repoRoot, not cwd — `npm run --workspace worker ...` runs with
+// cwd=worker/, where a relative './env' would silently miss the real file.
+try {
+  process.loadEnvFile(join(repoRoot, '.env'));
+} catch {
+  // no .env yet — nothing to load
+}
+
 export const DATA_ROOT = process.env.WADL_DATA_DIR ?? join(repoRoot, 'data');
 
 // AD-7: distinct roots — a file's directory must match its DB status.
