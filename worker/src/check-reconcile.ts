@@ -47,6 +47,11 @@ writeFileSync(join(roots.staging, scanningIntact), 'complete-bytes');
 // (d) invariant violated: status says scanning but no artifact exists.
 const scanningMissing = insertItem('scanning');
 
+// (d2) status says scanning, but only a partial `.part` marker is there —
+// must not be mistaken for the intact artifact (findArtifact vs. findPartialArtifact).
+const scanningOnlyPartial = insertItem('scanning');
+writeFileSync(join(roots.staging, `${scanningOnlyPartial}.part`), 'still-downloading');
+
 // (e) mid-extraction can't be trusted partially applied — fail closed.
 const extracting = insertItem('extracting');
 mkdirSync(join(roots.extract, extracting), { recursive: true });
@@ -71,7 +76,7 @@ function statusOf(id: string): string {
   return (db.prepare('SELECT status FROM items WHERE item_id = ?').get(id) as { status: string }).status;
 }
 
-assert.equal(resolved, 8, 'should resolve every non-terminal row seeded above');
+assert.equal(resolved, 9, 'should resolve every non-terminal row seeded above');
 
 assert.equal(statusOf(received), 'received');
 assert.equal(statusOf(validating), 'received');
@@ -84,6 +89,13 @@ assert.equal(existsSync(join(roots.staging, scanningIntact)), true, 'intact stag
 
 assert.equal(statusOf(scanningMissing), 'received');
 
+assert.equal(statusOf(scanningOnlyPartial), 'received');
+assert.equal(
+  existsSync(join(roots.staging, `${scanningOnlyPartial}.part`)),
+  false,
+  'a lone .part file must never be treated as the intact scan artifact',
+);
+
 assert.equal(statusOf(extracting), 'quarantined');
 assert.equal(existsSync(join(roots.extract, extracting)), false, 'untrusted extraction output must be dropped');
 
@@ -93,8 +105,8 @@ assert.equal(statusOf(movedToQuarantine), 'quarantined');
 assert.equal(statusOf(alreadyStored), 'stored');
 
 const queueIds = new Set(queue.map((item) => item.item_id));
-assert.equal(queue.length, 5, 'queue must hold exactly the still-non-terminal items');
-for (const id of [received, validating, downloading, scanningIntact, scanningMissing]) {
+assert.equal(queue.length, 6, 'queue must hold exactly the still-non-terminal items');
+for (const id of [received, validating, downloading, scanningIntact, scanningMissing, scanningOnlyPartial]) {
   assert.equal(queueIds.has(id), true, `${id} should be back in the rebuilt queue`);
 }
 for (const id of [extracting, movedToFinal, movedToQuarantine, alreadyStored]) {
