@@ -1,0 +1,299 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "[E1.1] Project scaffold & shared data contract",
+        "description": "As the builder, I want the two-process skeleton and pinned shared data contract in place, so the worker and dashboard integrate through one well-defined SQLite seam from day one.",
+        "status": "review",
+        "dependencies": [],
+        "priority": "high",
+        "details": "Create monorepo: worker/ (Node/TS ESM), dashboard/ (Next.js 16.2), shared/ (status enum + TS types + versioned migrations), gitignored data/ (staging|final|quarantine|extract + baileys auth store) and .env. Pin stack: Node 24 LTS, TypeScript 5.9, Baileys 6.7.x (pkg 'baileys'), better-sqlite3 12.11.x, Tailwind v4+shadcn, qrcode 1.5.4, clamscan 2.4.0, file-type 22. Migrations create items, events, contacts, link_patterns, settings (seed policy defaults). Open DB in WAL + busy_timeout on every connection; worker owns schema/migrations, dashboard issues no DDL. Governs: AD-1/2/3/4/14/17. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a fresh repo WHEN scaffold is created THEN the four dirs, pinned stack, and the 5 tables exist; DB is WAL with busy_timeout; worker runs migrations at startup and dashboard issues no DDL; settings seeded with defaults.",
+        "subtasks": []
+      },
+      {
+        "id": 2,
+        "title": "[E1.2] WhatsApp session & QR pairing",
+        "description": "As the operator, I want to pair the dedicated secondary number by scanning a QR, so the worker holds a live WhatsApp session.",
+        "status": "review",
+        "dependencies": [
+          1
+        ],
+        "priority": "high",
+        "details": "Baileys worker connects on the secondary number; render first-run QR as a scannable image via qrcode (not terminal). Persist auth in a dedicated worker-owned store (NOT useMultiFileAuthState), outside the shared DB. Secrets from .env. FR-14(partial); AD-9. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN no session WHEN worker starts THEN a scannable QR image renders and, once scanned, a connected session is established; auth persists in the dedicated store outside the shared DB.",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "[E1.3] Resilient reconnection",
+        "description": "As the operator, I want the session to recover from transient drops on its own, so I only intervene when a real re-pair is required.",
+        "status": "review",
+        "dependencies": [
+          2
+        ],
+        "priority": "medium",
+        "details": "Handle Baileys DisconnectReason: transient (connectionLost/timedOut/etc.) -> auto-reconnect with backoff + retry cap (never tight loop); restartRequired -> reconnect once; badSession -> clear auth + restart pairing; loggedOut -> stop auto-reconnect and flag re-pair. FR-15; AD-9. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a live session WHEN a transient disconnect occurs THEN backoff reconnect with cap; loggedOut stops auto-reconnect and flags re-pair; restartRequired reconnects once.",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "[E1.4] Fail-closed startup reconciliation",
+        "description": "As the builder, I want the worker to reconcile in-flight work safely on every start, so a crash never leaves an item trusted or a file mislocated.",
+        "status": "review",
+        "dependencies": [
+          1
+        ],
+        "priority": "medium",
+        "details": "On start, reconcile every non-terminal items row and every file against the dir<->status invariant (AD-7). Any mismatch/in-flight item -> resolved fail-closed (re-queue from safe stage or quarantine), never advanced. Rebuild the bounded work queue from items status, not memory. AD-15, NFR-3. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN items left non-terminal or a dir!=status file after a crash WHEN the worker starts THEN each is re-queued or quarantined fail-closed and the queue is rebuilt from items status.",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "[E1.5] Always-on supervision & durability",
+        "description": "As the operator, I want the worker kept alive and the data recoverable, so the pipeline survives crashes and I can restore after loss.",
+        "status": "review",
+        "dependencies": [
+          4
+        ],
+        "priority": "medium",
+        "details": "Run worker under a process supervisor (pm2) that auto-restarts (safe resume via task 4). Back up SQLite + final/ store daily to a separate location; events log retention 90 days (both editable via settings, task 22). AD-16, AD-17, NFR-5. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN the deployed worker WHEN it exits unexpectedly THEN pm2 auto-restarts it; SQLite + final/ are backed up daily and events retention is 90d, both read from settings.",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "[E2.1] Sender gate",
+        "description": "As the operator, I want only whitelisted contacts to be processed, so strangers' messages never touch the pipeline.",
+        "status": "review",
+        "dependencies": [
+          2
+        ],
+        "priority": "high",
+        "details": "Process a message only if sender is an active contacts entry; else no download/notification, never advances. Inactive entry = not whitelisted. Minimal/optional logging of ignored senders (avoid noise). FR-1; AD-2/5. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN an incoming message WHEN sender is not active in contacts THEN no download/notification and no advance; an active sender proceeds to link evaluation; inactive entry treated as not whitelisted.",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "[E2.2] Link extraction & pattern gate",
+        "description": "As the operator, I want only whitelisted link shapes to advance, so arbitrary URLs are never fetched.",
+        "status": "review",
+        "dependencies": [
+          6
+        ],
+        "priority": "high",
+        "details": "Extract http(s) URLs from message TEXT only; advance only those matching an active link_patterns entry via ONE shared matcher module (exact-domain + optional path prefix and/or extension allowlist; no regex, no wildcard TLD, no substring). Each matching URL advances independently. FR-2; AD-12. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a whitelisted sender's text WHEN URLs are extracted THEN only active-pattern matches advance (each independently); no-URL or no-match does not advance; matcher is the shared module (no regex/wildcard).",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "[E2.3] Live whitelist evaluation",
+        "description": "As the operator, I want my whitelist edits to take effect immediately, so I never restart the worker to change who or what is allowed.",
+        "status": "in-progress",
+        "dependencies": [
+          7
+        ],
+        "priority": "medium",
+        "details": "Worker reads both whitelist tables fresh per message, never caching across messages; add/activate/deactivate honored on the very next message with no restart. FR-11; AD-2. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN the worker running WHEN I add/activate or deactivate a contact/pattern THEN it is honored on the next message with no restart; worker never caches whitelists across messages.",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "[E3.1] Pre-download deduplication",
+        "description": "As the operator, I want an already-processed link skipped before any fetch, so re-sends don't re-download.",
+        "status": "pending",
+        "dependencies": [
+          7
+        ],
+        "priority": "medium",
+        "details": "Compute normalized-URL hash at the gate; if it matches an already-processed item, short-circuit to duplicate WITHOUT fetching. Record url_hash on items. FR-4 (pre-key); AD-10. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a matched URL WHEN its normalized-URL hash matches an already-processed item THEN it short-circuits to duplicate with no fetch.",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "[E3.2] Guarded fetch - SSRF, redirect & IP pinning",
+        "description": "As the builder, I want every fetch routed through one guarded component, so attacker-influenced URLs can't reach internal hosts or bypass the gate.",
+        "status": "pending",
+        "dependencies": [
+          7
+        ],
+        "priority": "high",
+        "details": "Single guarded fetcher: resolve + PIN the target IP for the connection; refuse private/loopback/link-local/metadata ranges (submitted URL or any redirect) - defends DNS rebinding. Re-check the link-pattern (shared matcher) on EVERY 3xx hop; reject a hop to a non-matching host at the redirect. Bound redirect hops (default 5, from settings). FR-16; AD-8/17. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a URL WHEN the fetcher connects THEN it pins the resolved IP and refuses private/reserved ranges via URL or redirect; each redirect re-checks the pattern and rejects non-matching hops; chains over the hop cap abort.",
+        "subtasks": []
+      },
+      {
+        "id": 11,
+        "title": "[E3.3] Streaming validation & staged download",
+        "description": "As the builder, I want size enforced during download and files staged first, so a lying HEAD or oversized body can't slip through or reach the final store.",
+        "status": "pending",
+        "dependencies": [
+          10
+        ],
+        "priority": "high",
+        "details": "Reject unacceptable content-type before the body; enforce max size (default 200MB, from settings) as a STREAMING byte cap that aborts mid-transfer and discards the partial (HEAD/Content-Length advisory only). Valid file lands only in staging/, never final/ before a passing scan. FR-3/5; AD-6/17. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a validated target WHEN the body is fetched THEN unacceptable type is rejected pre-body and size is a streaming cap that aborts+discards on exceed; a valid file lands only in staging/.",
+        "subtasks": []
+      },
+      {
+        "id": 12,
+        "title": "[E3.4] Post-download content deduplication",
+        "description": "As the operator, I want identical bytes from different URLs recognized, so the same file isn't stored twice.",
+        "status": "pending",
+        "dependencies": [
+          11,
+          9
+        ],
+        "priority": "medium",
+        "details": "Compute content SHA-256 on the staged file; if it matches an already-processed item, short-circuit to duplicate; else record content_sha256 on the items row. FR-4 (post-key); AD-10. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a downloaded file WHEN its content SHA-256 matches an already-processed item THEN it short-circuits to duplicate; otherwise the hash is recorded on items.",
+        "subtasks": []
+      },
+      {
+        "id": 13,
+        "title": "[E3.5] Mandatory fail-closed scan",
+        "description": "As the operator, I want every file scanned by a live, current engine before it's trusted, so 'unable to scan' is never treated as 'clean'.",
+        "status": "pending",
+        "dependencies": [
+          11
+        ],
+        "priority": "high",
+        "details": "ClamAV mandatory, must be live and signature-current (max age default 48h from settings); optional VirusTotal hash lookup as second signal (VT flag on a clean file -> hard-fail to quarantine; VT unreachable -> HOLD the file, per settings; held files need a release/retry path). Scanner down/unresponsive/stale, or unscannable content (encrypted/corrupt) -> quarantined (fail-closed). Failed file never moved to final/ and never extracted. FR-6; AD-6/17; NFR-1. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a staged file WHEN scanned THEN ClamAV must be live+current; scanner-down/stale or unscannable content -> quarantined; VT flag -> hard-fail; VT outage -> hold; a fail is never moved to final/ or extracted.",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "[E3.6] Guarded archive extraction & re-scan",
+        "description": "As the builder, I want archives expanded only after passing and under strict guards, so a bomb or path-traversal archive can't detonate or escape.",
+        "status": "pending",
+        "dependencies": [
+          13
+        ],
+        "priority": "high",
+        "details": "Extract only after a passing scan, to an ISOLATED location. Cap total uncompressed size (500MB), cumulative file count (1000), and nesting depth (3) RECURSIVELY across formats (zip/gzip/tar/bzip2/xz/7z/nested) - all from settings; exceeding any cap aborts + quarantines. Reject symlink/hardlink entries and any entry resolving outside target via canonical-path check; never overwrite. RE-SCAN extracted contents before any move; move->status write in fixed order (rename first, then commit). FR-7; AD-7/17. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a scanned-clean archive WHEN extracted to isolation THEN recursive caps abort+quarantine on exceed; symlink/hardlink/zip-slip entries rejected via canonical path; extracted contents re-scanned before any move; rename precedes status commit.",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "[E3.7] Filing, quarantine & file integrity",
+        "description": "As the operator, I want clean files filed safely and everything else quarantined, so the final store only ever holds trusted, correctly-typed files.",
+        "status": "pending",
+        "dependencies": [
+          13,
+          14
+        ],
+        "priority": "high",
+        "details": "Clean file -> final/ by atomic rename with dir matching status; failure -> quarantine/ + log. Classify by REAL bytes (file-type); declared-type/real-bytes mismatch rejected/quarantined. Sanitize stored names (no path sep/control/overlong); write files NON-executable and outside any auto-run path. FR-8/17/18; AD-7. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a scan outcome WHEN the file is placed THEN clean -> final/ via atomic rename (dir==status), failure -> quarantine/+log; real-byte type mismatch quarantined; names sanitized; files non-executable and outside auto-run paths.",
+        "subtasks": []
+      },
+      {
+        "id": 16,
+        "title": "[E3.8] Bounded concurrency & per-sender rate cap",
+        "description": "As the operator, I want downloads bounded, so a flood of links can't exhaust disk or CPU.",
+        "status": "pending",
+        "dependencies": [
+          10
+        ],
+        "priority": "medium",
+        "details": "Process downloads through a bounded queue: max_concurrent (default 2) + per_sender_rate (default 10/min), both read LIVE from settings (no restart). Overflow queues rather than runs. AD-13/17; NFR-4. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN multiple incoming matched links WHEN processed THEN downloads run at max 2 concurrent with 10/min per sender; overflow queues; both values read live from settings.",
+        "subtasks": []
+      },
+      {
+        "id": 17,
+        "title": "[E4.1] Telegram delivery of results",
+        "description": "As the operator, I want files or a clear status delivered to Telegram, so I get results without watching a screen.",
+        "status": "pending",
+        "dependencies": [
+          15
+        ],
+        "priority": "medium",
+        "details": "Deliver via Telegram Bot API (HTTP POST, token from .env). File <=50MB via sendDocument; >50MB -> text 'file ready, too large to send directly, check the dashboard' (no failed send attempt). Successful archive -> summary list of filenames, not one message per file. FR-9; AD-11. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a stored file WHEN delivered THEN <=50MB is sent as the file; >50MB sends the too-large text; an archive is announced as a filename summary.",
+        "subtasks": []
+      },
+      {
+        "id": 18,
+        "title": "[E4.2] Failure & quarantine notifications",
+        "description": "As the operator, I want to be told when something is quarantined or fails, so nothing fails silently.",
+        "status": "pending",
+        "dependencies": [
+          15
+        ],
+        "priority": "medium",
+        "details": "On quarantine/pipeline failure -> Telegram alert. Delivery fires only at a terminal transition; a Telegram send failure is recorded as an Event and surfaced, never blocking or reversing a state transition. FR-10; AD-11. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a quarantine or failure WHEN it occurs THEN a Telegram notification is sent; delivery is a terminal side-effect and a send failure is logged as an Event without reversing state.",
+        "subtasks": []
+      },
+      {
+        "id": 19,
+        "title": "[E5.1] Whitelist management UI",
+        "description": "As the operator, I want to manage contacts and link-patterns from the dashboard, so I control who and what is allowed without touching the DB.",
+        "status": "pending",
+        "dependencies": [
+          1
+        ],
+        "priority": "medium",
+        "details": "Dashboard CRUD for contacts (jid+label+active) and link_patterns (pattern+type+active); persists to SQLite. Dashboard writes ONLY contacts/link_patterns/settings, never pipeline state. FR-12; AD-2. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN the dashboard WHEN I add/edit/activate/deactivate a contact or pattern THEN every whitelist field is editable and persists; dashboard writes only operator-config tables.",
+        "subtasks": []
+      },
+      {
+        "id": 20,
+        "title": "[E5.2] Event log & quarantine views",
+        "description": "As the operator, I want to see everything the pipeline has done, so I can audit outcomes and review quarantined files.",
+        "status": "pending",
+        "dependencies": [
+          1
+        ],
+        "priority": "medium",
+        "details": "Dashboard reads events/items and shows each Event with status, source contact, link, filename, scan result, timestamp; quarantined files listed distinctly from delivered/stored. Read-only, local, not publicly exposed. FR-13; AD-1; NFR-6. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN pipeline activity WHEN I open the dashboard THEN every Event is viewable with its metadata and quarantine is listed distinctly; dashboard only reads this state.",
+        "subtasks": []
+      },
+      {
+        "id": 21,
+        "title": "[E5.3] Connection status & QR re-pair surface",
+        "description": "As the operator, I want to see connection health and re-pair when needed, so I can restore the session quickly.",
+        "status": "pending",
+        "dependencies": [
+          1,
+          3,
+          18
+        ],
+        "priority": "medium",
+        "details": "Show current connection status (from shared store). On loggedOut/session-invalid: render a scannable QR image in the dashboard AND send a Telegram alert; no silent reconnect loop. FR-14; AD-1. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN the worker connection state WHEN I view the dashboard THEN status is shown; on loggedOut a scannable QR renders and a Telegram alert is sent with no silent reconnect loop.",
+        "subtasks": []
+      },
+      {
+        "id": 22,
+        "title": "[E5.4] Policy settings",
+        "description": "As the operator, I want to tune the pipeline's safety limits from the dashboard, so I can adjust behavior without editing code or restarting the worker.",
+        "status": "pending",
+        "dependencies": [
+          1
+        ],
+        "priority": "medium",
+        "details": "Settings page edits: size/archive caps, redirect hops, scanner-signature freshness, max_concurrent, per_sender_rate, VT flag policy (hard-fail/warn), VT outage policy (hold/degrade), backup cadence, event retention. Persist to settings table (seeded defaults); worker honors on next relevant operation, no restart. Secrets (Telegram/VT keys) NOT shown/editable - stay in .env. Dashboard writes only settings/contacts/link_patterns. FR-19; AD-17/9/2. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN the Settings page WHEN I edit a policy value THEN it persists to settings and the worker honors it on the next relevant operation with no restart; secrets are never shown/editable; dashboard writes only operator-config tables.",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2026-07-17T12:55:00.000Z",
+      "updated": "2026-07-17T12:55:00.000Z",
+      "description": "WhatsApp Downloader - 22 stories across 5 epics, wired from BMAD epics.md (SPEC CAP-1..8, ADs AD-1..17, FR-1..19). Deterministic import, not LLM-parsed."
+    }
+  }
+}
