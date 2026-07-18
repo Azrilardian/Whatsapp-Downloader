@@ -6,6 +6,7 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  jidNormalizedUser,
   type WASocket,
 } from 'baileys';
 import type { Boom } from '@hapi/boom';
@@ -13,6 +14,7 @@ import type { Db } from '@wadl/shared';
 import { nowIso } from '@wadl/shared';
 import { useSqliteAuthState } from './auth-store.ts';
 import { BAILEYS_AUTH_DIR } from './paths.ts';
+import { isSenderWhitelisted } from './gates.ts';
 
 const AUTH_DB_PATH = join(BAILEYS_AUTH_DIR, 'auth.db');
 export const QR_IMAGE_PATH = join(BAILEYS_AUTH_DIR, 'pairing-qr.png');
@@ -74,6 +76,28 @@ export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promis
   });
 
   sock.ev.on('creds.update', auth.saveCreds);
+
+  // FR-1/AD-2: sender gate — evaluated live on every incoming message so a
+  // whitelist edit takes effect on the next message, no restart (AD-5).
+  sock.ev.on('messages.upsert', ({ messages, type }) => {
+    if (type !== 'notify') return; // skip history-sync replays, not live traffic
+    for (const msg of messages) {
+      if (msg.key.fromMe) continue;
+      const rawJid = msg.key.participant ?? msg.key.remoteJid;
+      if (!rawJid) continue;
+      const senderJid = jidNormalizedUser(rawJid);
+
+      if (!isSenderWhitelisted(db, senderJid)) {
+        // Silently ignored: no download, no notification, no items row —
+        // deliberately not logged per-message to avoid flooding the event log.
+        continue;
+      }
+
+      recordEvent(db, 'sender_gate_passed', senderJid);
+      // FR-2 link gate (task 7) attaches here: evaluate message text against
+      // active link_patterns before an items row is ever created.
+    }
+  });
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
