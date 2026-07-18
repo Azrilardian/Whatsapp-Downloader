@@ -107,7 +107,7 @@
         "id": 9,
         "title": "[E3.1] Pre-download deduplication",
         "description": "As the operator, I want an already-processed link skipped before any fetch, so re-sends don't re-download.",
-        "status": "in-progress",
+        "status": "review",
         "dependencies": [
           7
         ],
