@@ -8,11 +8,13 @@ import {
   QUARANTINE_DIR,
   EXTRACT_DIR,
   BAILEYS_AUTH_DIR,
+  BACKUPS_DIR,
   DB_PATH,
   MIGRATIONS_DIR,
 } from './paths.ts';
 import { startWhatsAppSession } from './session.ts';
 import { reconcileOnStartup } from './reconcile.ts';
+import { scheduleMaintenance } from './backup.ts';
 
 // .env (AD-9 secrets) is loaded inside paths.ts, before WADL_DATA_DIR/
 // WADL_DB_PATH are read — see the comment there for why it can't happen here.
@@ -56,6 +58,10 @@ if (process.argv.includes('--once')) {
   db.close();
   process.exit(0);
 }
+
+// AD-16/NFR-5: daily backup of the DB + final/ store and events retention
+// pruning, both read live from settings.
+scheduleMaintenance(db, { final: FINAL_DIR, backups: BACKUPS_DIR });
 
 // Story 1.2: pair/reconnect the dedicated secondary number. Pipeline filters
 // (epics 2-4) and the full reconnection policy (Story 1.3) attach in later
