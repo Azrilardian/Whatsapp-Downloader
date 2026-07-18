@@ -6,15 +6,27 @@ import type { Db, LinkPatternRow } from '@wadl/shared';
 import { matchesLinkPattern } from '@wadl/shared';
 
 const DEFAULT_MAX_REDIRECT_HOPS = 5;
+const REQUEST_TIMEOUT_MS = 30_000;
 
-// AD-8: private/loopback/link-local/cloud-metadata ranges are refused for
-// both the initial URL and every redirect hop's resolved IP.
+// AD-8: private/loopback/link-local/reserved/cloud-metadata ranges are
+// refused for both the initial URL and every redirect hop's resolved IP.
+// Source: IANA special-purpose address registries (RFC 6890 / RFC 6724).
 const BLOCKED_V4_RANGES: [number, number][] = [
-  cidr4('127.0.0.0', 8),
+  cidr4('0.0.0.0', 8), // "this network"
   cidr4('10.0.0.0', 8),
-  cidr4('172.16.0.0', 12),
-  cidr4('192.168.0.0', 16),
+  cidr4('100.64.0.0', 10), // CGNAT
+  cidr4('127.0.0.0', 8),
   cidr4('169.254.0.0', 16),
+  cidr4('172.16.0.0', 12),
+  cidr4('192.0.0.0', 24), // IETF protocol assignments
+  cidr4('192.0.2.0', 24), // TEST-NET-1
+  cidr4('192.88.99.0', 24), // 6to4 relay anycast
+  cidr4('192.168.0.0', 16),
+  cidr4('198.18.0.0', 15), // benchmarking
+  cidr4('198.51.100.0', 24), // TEST-NET-2
+  cidr4('203.0.113.0', 24), // TEST-NET-3
+  cidr4('224.0.0.0', 4), // multicast
+  cidr4('240.0.0.0', 4), // reserved
 ];
 
 function cidr4(base: string, bits: number): [number, number] {
@@ -27,16 +39,46 @@ function ipv4ToInt(ip: string): number {
   return ip.split('.').reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
 }
 
-function isBlockedIp(ip: string): boolean {
+// Full 128-bit parse so ULA (fc00::/7) and other >16-bit-prefixed ranges are
+// checked correctly, not just the first hextet.
+function ipv6ToBigInt(ip: string): bigint {
+  const full = expandIpv6(ip);
+  return full.reduce((acc, part) => (acc << 16n) + BigInt(part), 0n);
+}
+
+function expandIpv6(ip: string): number[] {
+  const [head, tail = ''] = ip.split('::');
+  const headParts = head ? head.split(':').map((p) => parseInt(p, 16)) : [];
+  const tailParts = tail ? tail.split(':').map((p) => parseInt(p, 16)) : [];
+  const missing = 8 - headParts.length - tailParts.length;
+  return [...headParts, ...Array(Math.max(missing, 0)).fill(0), ...tailParts];
+}
+
+function cidr6(base: string, bits: number): [bigint, bigint] {
+  const num = ipv6ToBigInt(base);
+  const mask = bits === 0 ? 0n : (((1n << 128n) - 1n) << BigInt(128 - bits)) & ((1n << 128n) - 1n);
+  return [num & mask, mask];
+}
+
+const BLOCKED_V6_RANGES: [bigint, bigint][] = [
+  cidr6('::', 128), // unspecified
+  cidr6('::1', 128), // loopback
+  cidr6('fc00::', 7), // unique local (ULA)
+  cidr6('fe80::', 10), // link-local
+  cidr6('2001:db8::', 32), // documentation
+  cidr6('::ffff:0:0', 96), // IPv4-mapped (unwrapped separately, kept as backstop)
+];
+
+export function isBlockedIp(ip: string): boolean {
   if (isIP(ip) === 4) {
     const num = ipv4ToInt(ip);
     return BLOCKED_V4_RANGES.some(([base, mask]) => (num & mask) === base);
   }
-  // ::1 loopback and IPv4-mapped ::ffff:a.b.c.d fall back to the v4 check.
   const normalized = ip.toLowerCase();
-  if (normalized === '::1') return true;
   const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  return mapped?.[1] ? isBlockedIp(mapped[1]) : false;
+  if (mapped?.[1]) return isBlockedIp(mapped[1]);
+  const num = ipv6ToBigInt(normalized);
+  return BLOCKED_V6_RANGES.some(([base, mask]) => (num & mask) === base);
 }
 
 // AD-17: read live from `settings`, never cached — mirrors backup.ts's getSetting.
@@ -77,6 +119,9 @@ function realRequest(url: URL, address: string): Promise<http.IncomingMessage | 
       },
       (res) => resolve(res),
     );
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error('guarded fetch timed out'));
+    });
     req.on('error', (err) => resolve(err));
     req.end();
   });
@@ -108,13 +153,21 @@ export async function guardedFetch(
 
   let currentUrl = startUrl;
   for (let hop = 0; hop <= maxHops; hop++) {
-    const url = new URL(currentUrl);
+    let url: URL;
+    try {
+      url = new URL(currentUrl);
+    } catch (err) {
+      return { ok: false, reason: 'fetch_error', detail: `invalid url ${currentUrl}: ${String(err)}` };
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return { ok: false, reason: 'fetch_error', detail: `unsupported protocol ${url.protocol}` };
+    }
 
-    if (hop > 0) {
-      const patterns = activeLinkPatterns(db);
-      if (!patterns.some((pattern) => matchesLinkPattern(url, pattern))) {
-        return { ok: false, reason: 'pattern_mismatch', detail: currentUrl };
-      }
+    // Gate every hop, including hop zero, so callers can't bypass the
+    // whitelist with an unmatched initial URL.
+    const patterns = activeLinkPatterns(db);
+    if (!patterns.some((pattern) => matchesLinkPattern(url, pattern))) {
+      return { ok: false, reason: 'pattern_mismatch', detail: currentUrl };
     }
 
     let address: string;
@@ -127,7 +180,12 @@ export async function guardedFetch(
       return { ok: false, reason: 'blocked_ip', detail: `${url.hostname} -> ${address}` };
     }
 
-    const response = await deps.request(url, address);
+    let response: http.IncomingMessage | Error;
+    try {
+      response = await deps.request(url, address);
+    } catch (err) {
+      response = err instanceof Error ? err : new Error(String(err));
+    }
     if (response instanceof Error) {
       return { ok: false, reason: 'fetch_error', detail: String(response) };
     }
@@ -135,7 +193,11 @@ export async function guardedFetch(
     const status = response.statusCode ?? 0;
     if (status >= 300 && status < 400 && response.headers.location) {
       response.resume(); // drain, discard body of the redirect response
-      currentUrl = new URL(response.headers.location, currentUrl).toString();
+      try {
+        currentUrl = new URL(response.headers.location, currentUrl).toString();
+      } catch (err) {
+        return { ok: false, reason: 'fetch_error', detail: `invalid redirect location: ${String(err)}` };
+      }
       continue;
     }
 

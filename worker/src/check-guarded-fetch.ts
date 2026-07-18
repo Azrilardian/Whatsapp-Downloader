@@ -4,7 +4,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb, runMigrations, nowIso } from '@wadl/shared';
 import { MIGRATIONS_DIR } from './paths.ts';
-import { guardedFetch, type GuardedFetchDeps } from './guarded-fetch.ts';
+import { guardedFetch, isBlockedIp, type GuardedFetchDeps } from './guarded-fetch.ts';
+
+// isBlockedIp boundary checks: CGNAT, multicast, and IPv6 ULA/link-local,
+// each just inside and just outside the blocked range.
+assert.equal(isBlockedIp('100.64.0.1'), true); // CGNAT start
+assert.equal(isBlockedIp('100.63.255.255'), false); // just below CGNAT
+assert.equal(isBlockedIp('100.127.255.255'), true); // CGNAT end
+assert.equal(isBlockedIp('100.128.0.0'), false); // just above CGNAT
+assert.equal(isBlockedIp('224.0.0.1'), true); // multicast
+assert.equal(isBlockedIp('223.255.255.255'), false); // just below multicast
+assert.equal(isBlockedIp('8.8.8.8'), false); // public
+assert.equal(isBlockedIp('fc00::1'), true); // ULA
+assert.equal(isBlockedIp('fbff:ffff::1'), false); // just below ULA
+assert.equal(isBlockedIp('fe80::1'), true); // link-local
+assert.equal(isBlockedIp('2606:4700:4700::1111'), false); // public v6
 
 // Task 10 self-check (FR-16/AD-8/AD-12/AD-17): pins the resolved IP and
 // refuses private/reserved ranges via URL or redirect; each redirect
@@ -35,6 +49,23 @@ function fakeResponse(statusCode: number, location?: string): any {
   const result = await guardedFetch(db, 'https://good.example.com/a.pdf', deps);
   assert.equal(result.ok, false);
   assert.equal(!result.ok && result.reason, 'blocked_ip');
+}
+
+// case 1b: initial URL's host has no active pattern -> pattern_mismatch
+// before any DNS lookup or request (whitelist applies to hop zero too).
+{
+  let lookupCount = 0;
+  const deps: GuardedFetchDeps = {
+    lookup: async () => {
+      lookupCount++;
+      return { address: '93.184.216.34' };
+    },
+    request: async () => fakeResponse(200),
+  };
+  const result = await guardedFetch(db, 'https://unmatched.example.com/a.pdf', deps);
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.reason, 'pattern_mismatch');
+  assert.equal(lookupCount, 0);
 }
 
 // case 2: clean fetch, no redirect -> ok.
