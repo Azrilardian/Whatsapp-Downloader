@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { openDb, runMigrations, nowIso } from '@wadl/shared';
 import { MIGRATIONS_DIR } from './paths.ts';
-import { isBackupDue, pruneEventsRetention, resolveCadenceMs, runBackup } from './backup.ts';
+import { isBackupDue, pruneEventsRetention, resolveCadenceMs, resolveRetentionDays, runBackup } from './backup.ts';
 
 // Story 1.5 self-check: AD-16/NFR-5 backup cadence + events retention.
 // Run: npx tsx src/check-backup.ts
@@ -27,6 +27,12 @@ assert.equal(
   true,
   '36h ago is due on a 24h cadence',
 );
+
+assert.equal(resolveRetentionDays('90'), 90);
+assert.equal(resolveRetentionDays('0'), 0);
+assert.equal(resolveRetentionDays('-1'), 90, 'negative retention would delete everything — falls back to default');
+assert.equal(resolveRetentionDays('not-a-number'), 90, 'non-numeric setting falls back to default');
+assert.equal(resolveRetentionDays(''), 90, 'empty setting falls back to default');
 
 const root = mkdtempSync(join(tmpdir(), 'wadl-backup-'));
 const finalDir = join(root, 'final');
