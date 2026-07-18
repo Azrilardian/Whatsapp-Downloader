@@ -7,6 +7,7 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
   jidNormalizedUser,
+  type WAMessage,
   type WASocket,
 } from 'baileys';
 import type { Boom } from '@hapi/boom';
@@ -14,7 +15,8 @@ import type { Db } from '@wadl/shared';
 import { nowIso } from '@wadl/shared';
 import { useSqliteAuthState } from './auth-store.ts';
 import { BAILEYS_AUTH_DIR } from './paths.ts';
-import { isSenderWhitelisted } from './gates.ts';
+import { evaluateLinkGate, isSenderWhitelisted } from './gates.ts';
+import { createReceivedItem } from './items.ts';
 
 const AUTH_DB_PATH = join(BAILEYS_AUTH_DIR, 'auth.db');
 export const QR_IMAGE_PATH = join(BAILEYS_AUTH_DIR, 'pairing-qr.png');
@@ -29,6 +31,11 @@ function recordEvent(db: Db, eventType: string, detail: string): void {
   db.prepare(
     'INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)',
   ).run(randomUUID(), null, eventType, detail, nowIso());
+}
+
+// URL-in-message-text only (SPEC constraint) — captions/attachments aren't parsed.
+function extractMessageText(msg: WAMessage): string | null {
+  return msg.message?.conversation ?? msg.message?.extendedTextMessage?.text ?? null;
 }
 
 function clearAuthStore(): void {
@@ -94,8 +101,12 @@ export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promis
       }
 
       recordEvent(db, 'sender_gate_passed', senderJid);
-      // FR-2 link gate (task 7) attaches here: evaluate message text against
-      // active link_patterns before an items row is ever created.
+
+      const text = extractMessageText(msg);
+      const matchedUrls = text ? evaluateLinkGate(db, text) : [];
+      for (const url of matchedUrls) {
+        createReceivedItem(db, senderJid, url);
+      }
     }
   });
 
