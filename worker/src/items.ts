@@ -33,26 +33,28 @@ function urlHash(url: string): string {
 export function createReceivedItem(db: Db, senderJid: string, sourceUrl: string): ItemRow {
   const now = nowIso();
   const hash = urlHash(sourceUrl);
-  const isDuplicate = db.prepare('SELECT 1 FROM items WHERE url_hash = ? LIMIT 1').get(hash) !== undefined;
 
-  const item: ItemRow = {
-    item_id: randomUUID(),
-    status: isDuplicate ? 'duplicate' : 'received',
-    sender_jid: senderJid,
-    source_url: sourceUrl,
-    url_hash: hash,
-    content_sha256: null,
-    filename: null,
-    size_bytes: null,
-    scan_result: null,
-    created_at: now,
-    updated_at: now,
-  };
+  // Atomic: the dedup lookup, items insert, and audit event all run inside
+  // one transaction so two concurrent callers can't both miss the dedup
+  // check and insert `received` rows for the same URL (SQLite serializes
+  // writers, so the second transaction sees the first's insert).
+  return db.transaction(() => {
+    const isDuplicate = db.prepare('SELECT 1 FROM items WHERE url_hash = ? LIMIT 1').get(hash) !== undefined;
 
-  // Atomic: an items row must never commit without its audit event, or vice
-  // versa — a failure partway through would otherwise leave one without the
-  // other.
-  db.transaction(() => {
+    const item: ItemRow = {
+      item_id: randomUUID(),
+      status: isDuplicate ? 'duplicate' : 'received',
+      sender_jid: senderJid,
+      source_url: sourceUrl,
+      url_hash: hash,
+      content_sha256: null,
+      filename: null,
+      size_bytes: null,
+      scan_result: null,
+      created_at: now,
+      updated_at: now,
+    };
+
     db.prepare(
       `INSERT INTO items (item_id, status, sender_jid, source_url, url_hash, content_sha256, filename, size_bytes, scan_result, created_at, updated_at)
        VALUES (@item_id, @status, @sender_jid, @source_url, @url_hash, @content_sha256, @filename, @size_bytes, @scan_result, @created_at, @updated_at)`,
@@ -61,7 +63,7 @@ export function createReceivedItem(db: Db, senderJid: string, sourceUrl: string)
     db.prepare(
       'INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)',
     ).run(randomUUID(), item.item_id, isDuplicate ? 'item_duplicate' : 'item_received', sourceUrl, now);
-  })();
 
-  return item;
+    return item;
+  })();
 }
