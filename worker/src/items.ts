@@ -28,14 +28,19 @@ export function createReceivedItem(db: Db, senderJid: string, sourceUrl: string)
     updated_at: now,
   };
 
-  db.prepare(
-    `INSERT INTO items (item_id, status, sender_jid, source_url, url_hash, content_sha256, filename, size_bytes, scan_result, created_at, updated_at)
-     VALUES (@item_id, @status, @sender_jid, @source_url, @url_hash, @content_sha256, @filename, @size_bytes, @scan_result, @created_at, @updated_at)`,
-  ).run(item);
+  // Atomic: an items row must never commit without its item_received audit
+  // event, or vice versa — a failure partway through would otherwise leave
+  // one without the other.
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO items (item_id, status, sender_jid, source_url, url_hash, content_sha256, filename, size_bytes, scan_result, created_at, updated_at)
+       VALUES (@item_id, @status, @sender_jid, @source_url, @url_hash, @content_sha256, @filename, @size_bytes, @scan_result, @created_at, @updated_at)`,
+    ).run(item);
 
-  db.prepare(
-    'INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)',
-  ).run(randomUUID(), item.item_id, 'item_received', sourceUrl, now);
+    db.prepare(
+      'INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)',
+    ).run(randomUUID(), item.item_id, 'item_received', sourceUrl, now);
+  })();
 
   return item;
 }

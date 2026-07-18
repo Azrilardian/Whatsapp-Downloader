@@ -60,6 +60,14 @@ assert.deepEqual(
 assert.deepEqual(evaluateLinkGate(db, 'just chatting, no link here'), []);
 assert.deepEqual(evaluateLinkGate(db, 'ftp://files.example.com/a.pdf'), []);
 
+// trailing prose punctuation is stripped, not treated as part of the URL.
+assert.deepEqual(evaluateLinkGate(db, 'see https://files.example.com/a.pdf.'), [
+  'https://files.example.com/a.pdf',
+]);
+assert.deepEqual(evaluateLinkGate(db, 'grab it: https://anywhere.test/archive.zip, thanks'), [
+  'https://anywhere.test/archive.zip',
+]);
+
 // each matched URL becomes its own independent items row (FR-2).
 const matched = evaluateLinkGate(
   db,

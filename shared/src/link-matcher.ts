@@ -8,9 +8,15 @@ import type { LinkPatternRow } from './types.ts';
 
 const URL_RE = /https?:\/\/[^\s<>()"']+/gi;
 
+// Trailing prose punctuation (a sentence-ending period, a comma before the
+// next clause, ...) is not part of the URL — strip it so
+// "https://x.com/a.pdf." doesn't wrongly pass a domain rule or
+// "https://x.com/archive.zip," doesn't wrongly fail an extension rule.
+const TRAILING_URL_PUNCTUATION_RE = /[.,!?:;]+$/u;
+
 /** Pulls every http(s) URL out of free-form message text. */
 export function extractUrls(text: string): string[] {
-  return [...text.matchAll(URL_RE)].map((match) => match[0]);
+  return [...text.matchAll(URL_RE)].map((match) => match[0].replace(TRAILING_URL_PUNCTUATION_RE, ''));
 }
 
 function parseDomainPattern(pattern: string): { domain: string; pathPrefix: string | null } {
