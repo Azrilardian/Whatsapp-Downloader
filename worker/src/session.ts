@@ -30,7 +30,10 @@ function recordEvent(db: Db, eventType: string, detail: string): void {
  * is layered in a later task; this starts the session and reconnects once
  * on a transient close so first pairing is resilient to a dropped socket.
  */
-export async function startWhatsAppSession(db: Db): Promise<WASocket> {
+export async function startWhatsAppSession(
+  db: Db,
+  reconnectsRemaining = 1,
+): Promise<WASocket> {
   mkdirSync(BAILEYS_AUTH_DIR, { recursive: true });
 
   const auth = useSqliteAuthState(AUTH_DB_PATH);
@@ -49,11 +52,14 @@ export async function startWhatsAppSession(db: Db): Promise<WASocket> {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      QRCode.toFile(QR_IMAGE_PATH, qr).catch((err: unknown) => {
-        console.error('failed to render pairing QR image:', err);
-      });
-      console.log(`scannable QR written to ${QR_IMAGE_PATH}`);
-      recordEvent(db, 'qr_generated', QR_IMAGE_PATH);
+      QRCode.toFile(QR_IMAGE_PATH, qr)
+        .then(() => {
+          console.log(`scannable QR written to ${QR_IMAGE_PATH}`);
+          recordEvent(db, 'qr_generated', QR_IMAGE_PATH);
+        })
+        .catch((err: unknown) => {
+          console.error('failed to render pairing QR image:', err);
+        });
     }
 
     if (connection === 'open') {
@@ -75,7 +81,11 @@ export async function startWhatsAppSession(db: Db): Promise<WASocket> {
       // a dropped socket. The full backoff+cap policy lands in Story 1.3.
       console.log('connection closed, reconnecting once...');
       auth.close();
-      void startWhatsAppSession(db);
+      if (reconnectsRemaining > 0) {
+        void startWhatsAppSession(db, reconnectsRemaining - 1).catch((err) => {
+          console.error('WhatsApp reconnection failed:', err);
+        });
+      }
     }
   });
 

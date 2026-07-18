@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import {
   BufferJSON,
   initAuthCreds,
+  proto,
   type AuthenticationCreds,
   type AuthenticationState,
   type SignalDataTypeMap,
@@ -59,7 +60,11 @@ export function useSqliteAuthState(authDbPath: string): AuthStore {
         for (const id of ids) {
           const row = readKey.get(type, id) as { value: string } | undefined;
           if (row) {
-            result[id] = JSON.parse(row.value, BufferJSON.reviver);
+            const value = JSON.parse(row.value, BufferJSON.reviver);
+            result[id] =
+              type === 'app-state-sync-key' && value
+                ? proto.Message.AppStateSyncKeyData.fromObject(value)
+                : value;
           }
         }
         return result;
