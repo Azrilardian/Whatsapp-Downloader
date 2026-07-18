@@ -14,6 +14,12 @@
     "worker": "npm run --workspace worker start",
     "worker:once": "npm run --workspace worker start:once",
     "dashboard": "npm run --workspace dashboard dev",
-    "typecheck": "npm run --workspaces --if-present typecheck"
+    "typecheck": "npm run --workspaces --if-present typecheck",
+    "supervise": "pm2 start ecosystem.config.cjs",
+    "supervise:stop": "pm2 stop ecosystem.config.cjs",
+    "supervise:logs": "pm2 logs wadl-worker"
+  },
+  "devDependencies": {
+    "pm2": "^5.4.0"
   }
 }

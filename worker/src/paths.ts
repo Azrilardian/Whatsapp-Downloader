@@ -26,5 +26,9 @@ export const EXTRACT_DIR = join(DATA_ROOT, 'extract');
 // AD-9: Baileys auth lives in its own worker-owned store, not the shared DB.
 export const BAILEYS_AUTH_DIR = join(DATA_ROOT, 'baileys-auth');
 
+// AD-16: scheduled backups of the SQLite file + final/ store live outside
+// the roots above so a backup run is never mistaken for pipeline state.
+export const BACKUPS_DIR = process.env.WADL_BACKUPS_DIR ?? join(DATA_ROOT, 'backups');
+
 export const DB_PATH = process.env.WADL_DB_PATH ?? join(DATA_ROOT, 'app.db');
 export const MIGRATIONS_DIR = join(repoRoot, 'shared', 'migrations');

@@ -6,6 +6,8 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  jidNormalizedUser,
+  type WAMessage,
   type WASocket,
 } from 'baileys';
 import type { Boom } from '@hapi/boom';
@@ -13,6 +15,8 @@ import type { Db } from '@wadl/shared';
 import { nowIso } from '@wadl/shared';
 import { useSqliteAuthState } from './auth-store.ts';
 import { BAILEYS_AUTH_DIR } from './paths.ts';
+import { evaluateLinkGate, isSenderWhitelisted } from './gates.ts';
+import { createReceivedItem } from './items.ts';
 
 const AUTH_DB_PATH = join(BAILEYS_AUTH_DIR, 'auth.db');
 export const QR_IMAGE_PATH = join(BAILEYS_AUTH_DIR, 'pairing-qr.png');
@@ -27,6 +31,11 @@ function recordEvent(db: Db, eventType: string, detail: string): void {
   db.prepare(
     'INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)',
   ).run(randomUUID(), null, eventType, detail, nowIso());
+}
+
+// URL-in-message-text only (SPEC constraint) — captions/attachments aren't parsed.
+function extractMessageText(msg: WAMessage): string | null {
+  return msg.message?.conversation ?? msg.message?.extendedTextMessage?.text ?? null;
 }
 
 function clearAuthStore(): void {
@@ -74,6 +83,32 @@ export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promis
   });
 
   sock.ev.on('creds.update', auth.saveCreds);
+
+  // FR-1/AD-2: sender gate — evaluated live on every incoming message so a
+  // whitelist edit takes effect on the next message, no restart (AD-5).
+  sock.ev.on('messages.upsert', ({ messages, type }) => {
+    if (type !== 'notify') return; // skip history-sync replays, not live traffic
+    for (const msg of messages) {
+      if (msg.key.fromMe) continue;
+      const rawJid = msg.key.participant ?? msg.key.remoteJid;
+      if (!rawJid) continue;
+      const senderJid = jidNormalizedUser(rawJid);
+
+      if (!isSenderWhitelisted(db, senderJid)) {
+        // Silently ignored: no download, no notification, no items row —
+        // deliberately not logged per-message to avoid flooding the event log.
+        continue;
+      }
+
+      recordEvent(db, 'sender_gate_passed', senderJid);
+
+      const text = extractMessageText(msg);
+      const matchedUrls = text ? evaluateLinkGate(db, text) : [];
+      for (const url of matchedUrls) {
+        createReceivedItem(db, senderJid, url);
+      }
+    }
+  });
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
