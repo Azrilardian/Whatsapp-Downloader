@@ -27,6 +27,14 @@ export function isBackupDue(lastBackupAt: Date | null, cadenceMs: number, now: D
   return now.getTime() - lastBackupAt.getTime() >= cadenceMs;
 }
 
+const DEFAULT_RETENTION_DAYS = 90;
+
+/** A negative, empty, or non-numeric setting would delete every event (negative cutoff) or silently prune everything (`Number('') === 0`) — fall back instead. */
+export function resolveRetentionDays(raw: string): number {
+  const parsed = raw.trim() === '' ? Number.NaN : Number(raw);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_RETENTION_DAYS;
+}
+
 function getSetting(db: Db, key: string, fallback: string): string {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
   return row?.value ?? fallback;
@@ -85,7 +93,7 @@ function pruneOldBackupDirs(backupsRoot: string, keep = 30): void {
 }
 
 async function runMaintenanceCycle(db: Db, roots: BackupRoots): Promise<void> {
-  const retentionDays = Number.parseInt(getSetting(db, 'events_retention_days', '90'), 10);
+  const retentionDays = resolveRetentionDays(getSetting(db, 'events_retention_days', '90'));
   const pruned = pruneEventsRetention(db, retentionDays);
   if (pruned > 0) console.log(`events retention: pruned ${pruned} row(s) older than ${retentionDays}d`);
 
