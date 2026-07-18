@@ -94,7 +94,7 @@
         "id": 8,
         "title": "[E2.3] Live whitelist evaluation",
         "description": "As the operator, I want my whitelist edits to take effect immediately, so I never restart the worker to change who or what is allowed.",
-        "status": "in-progress",
+        "status": "review",
         "dependencies": [
           7
         ],
