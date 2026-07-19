@@ -226,7 +226,7 @@
         "id": 18,
         "title": "[E4.2] Failure & quarantine notifications",
         "description": "As the operator, I want to be told when something is quarantined or fails, so nothing fails silently.",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [
           15
         ],
