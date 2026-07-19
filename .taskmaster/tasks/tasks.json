@@ -265,7 +265,7 @@
         "id": 21,
         "title": "[E5.3] Connection status & QR re-pair surface",
         "description": "As the operator, I want to see connection health and re-pair when needed, so I can restore the session quickly.",
-        "status": "pending",
+        "status": "review",
         "dependencies": [
           1,
           3,
