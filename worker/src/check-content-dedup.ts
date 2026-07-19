@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb, runMigrations } from '@wadl/shared';
@@ -14,6 +14,8 @@ import { checkContentDedup } from './content-dedup.ts';
 const root = mkdtempSync(join(tmpdir(), 'wadl-content-dedup-'));
 const db = openDb(join(root, 'app.db'));
 runMigrations(db, MIGRATIONS_DIR);
+
+try {
 
 const sender = 'sender@s.whatsapp.net';
 const hashA = 'a'.repeat(64);
@@ -55,5 +57,17 @@ const events = db.prepare("SELECT event_type FROM events WHERE event_type IN ('i
 assert.equal(events.filter((e) => e.event_type === 'content_hash_recorded').length, 2);
 assert.equal(events.filter((e) => e.event_type === 'item_duplicate').length, 1);
 
-db.close();
+// retry on an item that already recorded a hash -> short-circuits, no new event.
+const itemARetried = db.prepare('SELECT * FROM items WHERE item_id = ?').get(itemA.item_id) as typeof itemA;
+const retryResult = checkContentDedup(db, itemARetried, hashA, 1024);
+assert.deepEqual(retryResult, { status: 'recorded' });
+const eventsAfterRetry = db
+  .prepare("SELECT event_type FROM events WHERE event_type IN ('item_duplicate', 'content_hash_recorded')")
+  .all() as { event_type: string }[];
+assert.equal(eventsAfterRetry.length, events.length, 'retry on an already-hashed item emits no new event');
+
 console.log('check-content-dedup: ok');
+} finally {
+  db.close();
+  rmSync(root, { recursive: true, force: true });
+}

@@ -13,6 +13,13 @@ export type ContentDedupResult = { status: 'duplicate'; matchedItemId: string } 
  * downloads can dedup against this item.
  */
 export function checkContentDedup(db: Db, item: ItemRow, sha256: string, sizeBytes: number): ContentDedupResult {
+  // idempotent on retry: a hash already recorded for this item means a prior
+  // call already classified it (recorded or duplicate) — don't re-emit events
+  // or reclassify against rows that may have appeared since.
+  if (item.content_sha256) {
+    return { status: 'recorded' };
+  }
+
   const now = nowIso();
 
   return db.transaction((): ContentDedupResult => {
