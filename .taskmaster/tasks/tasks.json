@@ -200,7 +200,7 @@
         "id": 16,
         "title": "[E3.8] Bounded concurrency & per-sender rate cap",
         "description": "As the operator, I want downloads bounded, so a flood of links can't exhaust disk or CPU.",
-        "status": "in-progress",
+        "status": "review",
         "dependencies": [
           10
         ],
