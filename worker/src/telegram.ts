@@ -66,12 +66,28 @@ function logEvent(db: Db, item: ItemRow, eventType: string, detail: string | nul
 }
 
 /**
- * FR-9/AD-11: notifies the Operator over Telegram on a terminal outcome.
- * Delivery is not a status (only an Event) — a send failure is recorded and
- * surfaced here, never retried, never reversing the item's already-terminal
- * pipeline status.
+ * FR-9/FR-10/AD-11: delivery is not a status (only an Event) — a send
+ * failure is recorded and surfaced here, never retried, never reversing the
+ * item's already-terminal pipeline status.
  */
-export async function deliverStored(
+async function sendAndLog(
+  db: Db,
+  item: ItemRow,
+  send: () => Promise<TelegramSendResult>,
+  successDetail: string,
+  now: string,
+): Promise<DeliveryResult> {
+  const result = await send();
+  if (result.ok) {
+    logEvent(db, item, 'item_delivered', successDetail, now);
+    return { delivered: true };
+  }
+  logEvent(db, item, 'delivery_failed', result.detail ?? 'unknown error', now);
+  return { delivered: false, reason: result.detail ?? 'unknown error' };
+}
+
+/** FR-9/AD-11: notifies the Operator over Telegram on a successful terminal outcome (stored). */
+export function deliverStored(
   db: Db,
   item: ItemRow,
   input: DeliveryInput,
@@ -80,20 +96,31 @@ export async function deliverStored(
 ): Promise<DeliveryResult> {
   const now = nowIso();
 
-  let result: TelegramSendResult;
   if (input.kind === 'archive') {
     const summary = `Archive extracted (${input.filenames.length} file(s)):\n${input.filenames.join('\n')}`;
-    result = await client.sendMessage(chatId, summary);
-  } else if (input.sizeBytes > TELEGRAM_MAX_FILE_BYTES) {
-    result = await client.sendMessage(chatId, 'file ready, too large to send directly, check the dashboard');
-  } else {
-    result = await client.sendDocument(chatId, input.path, input.filename);
+    return sendAndLog(db, item, () => client.sendMessage(chatId, summary), `archive: ${input.filenames.length} files`, now);
   }
+  if (input.sizeBytes > TELEGRAM_MAX_FILE_BYTES) {
+    return sendAndLog(
+      db,
+      item,
+      () => client.sendMessage(chatId, 'file ready, too large to send directly, check the dashboard'),
+      input.filename,
+      now,
+    );
+  }
+  return sendAndLog(db, item, () => client.sendDocument(chatId, input.path, input.filename), input.filename, now);
+}
 
-  if (result.ok) {
-    logEvent(db, item, 'item_delivered', input.kind === 'archive' ? `archive: ${input.filenames.length} files` : input.filename, now);
-    return { delivered: true };
-  }
-  logEvent(db, item, 'delivery_failed', result.detail ?? 'unknown error', now);
-  return { delivered: false, reason: result.detail ?? 'unknown error' };
+/** FR-10/AD-11: notifies the Operator over Telegram on a quarantine or other pipeline failure — never fails silently. */
+export function notifyFailure(
+  db: Db,
+  item: ItemRow,
+  reason: string,
+  client: TelegramClient,
+  chatId: string,
+): Promise<DeliveryResult> {
+  const now = nowIso();
+  const text = `Quarantined/failed: ${item.source_url}\nReason: ${reason}`;
+  return sendAndLog(db, item, () => client.sendMessage(chatId, text), `failure notice: ${reason}`, now);
 }

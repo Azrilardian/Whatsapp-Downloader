@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { openDb, runMigrations } from '@wadl/shared';
 import { MIGRATIONS_DIR } from './paths.ts';
 import { createReceivedItem } from './items.ts';
-import { deliverStored } from './telegram.ts';
+import { deliverStored, notifyFailure } from './telegram.ts';
 import type { TelegramClient } from './telegram.ts';
 
 // Task 17 self-check (FR-9/AD-11): a clean file <=50MB is sent as a
@@ -112,6 +112,39 @@ try {
     assert.equal(eventsFor(item.item_id).some((e) => e.event_type === 'delivery_failed'), true);
     const statusAfter = (db.prepare('SELECT status FROM items WHERE item_id = ?').get(item.item_id) as { status: string }).status;
     assert.equal(statusAfter, statusBefore, 'a delivery failure never touches item status');
+  }
+
+  // case 5: quarantine/failure -> a Telegram alert is sent, never silent.
+  {
+    const item = freshItem();
+    const sentTexts: string[] = [];
+    const client: TelegramClient = {
+      sendMessage: async (_chatId, text) => {
+        sentTexts.push(text);
+        return { ok: true };
+      },
+      sendDocument: async () => ({ ok: true }),
+    };
+    const result = await notifyFailure(db, item, 'clamav: Eicar-Test-Signature', client, 'chat-1');
+    assert.deepEqual(result, { delivered: true });
+    assert.equal(sentTexts.length, 1);
+    assert.ok(sentTexts[0]!.includes('Eicar-Test-Signature'));
+    assert.equal(eventsFor(item.item_id).some((e) => e.event_type === 'item_delivered'), true);
+  }
+
+  // case 6: quarantine/failure notification send fails -> logged, item status untouched.
+  {
+    const item = freshItem();
+    const statusBefore = (db.prepare('SELECT status FROM items WHERE item_id = ?').get(item.item_id) as { status: string }).status;
+    const client: TelegramClient = {
+      sendMessage: async () => ({ ok: false, detail: 'ETIMEDOUT' }),
+      sendDocument: async () => ({ ok: false, detail: 'ETIMEDOUT' }),
+    };
+    const result = await notifyFailure(db, item, 'signature stale', client, 'chat-1');
+    assert.deepEqual(result, { delivered: false, reason: 'ETIMEDOUT' });
+    assert.equal(eventsFor(item.item_id).some((e) => e.event_type === 'delivery_failed'), true);
+    const statusAfter = (db.prepare('SELECT status FROM items WHERE item_id = ?').get(item.item_id) as { status: string }).status;
+    assert.equal(statusAfter, statusBefore);
   }
 
   console.log('check-telegram: ok');
