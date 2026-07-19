@@ -54,11 +54,19 @@ try {
     insertEvent(quarantinedItem, 'item_quarantined', 'clamav: Eicar-Test-Signature');
 
     insertEvent(null, 'worker_started', null); // system-level event, no item
+
+    // Yesterday's stored item must not count toward today's total.
+    const yesterdayItemId = randomUUID();
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+    db.prepare(
+      `INSERT INTO items (item_id, status, sender_jid, source_url, url_hash, filename, scan_result, created_at, updated_at)
+       VALUES (?, 'stored', ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(yesterdayItemId, 'sender@s.whatsapp.net', 'https://files.example.com/old.pdf', 'hash-old', 'old.pdf', 'clean', yesterday, yesterday);
   } finally {
     setupDb?.close();
   }
 
-  const { listEvents, listQuarantined } = await import('./db.ts');
+  const { listEvents, listQuarantined, getTodayStatusCounts } = await import('./db.ts');
 
   const events = listEvents();
   assert.equal(events.length, 3);
@@ -83,6 +91,9 @@ try {
     false,
     'a stored item never appears in the quarantine list',
   );
+
+  const todayCounts = getTodayStatusCounts();
+  assert.deepEqual(todayCounts, { stored: 1, quarantined: 1, ignored: 0 }, "yesterday's stored item excluded from today's count");
 
   console.log('check-activity: ok');
 } finally {
