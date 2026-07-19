@@ -108,6 +108,30 @@ export function listQuarantined(): ItemRow[] {
   );
 }
 
+/** Home stat cards: today's terminal-status counts (UTC calendar day, matching `nowIso`). */
+export interface TodayStatusCounts {
+  stored: number;
+  quarantined: number;
+  ignored: number;
+}
+
+export function getTodayStatusCounts(): TodayStatusCounts {
+  return withReadDb({ stored: 0, quarantined: 0, ignored: 0 }, (db) => {
+    const today = nowIso().slice(0, 10);
+    const rows = db
+      .prepare(
+        `SELECT status, COUNT(*) as count FROM items
+         WHERE updated_at LIKE ? AND status IN ('stored', 'quarantined', 'ignored')
+         GROUP BY status`,
+      )
+      .all(`${today}%`) as { status: 'stored' | 'quarantined' | 'ignored'; count: number }[];
+
+    const counts: TodayStatusCounts = { stored: 0, quarantined: 0, ignored: 0 };
+    for (const row of rows) counts[row.status] = row.count;
+    return counts;
+  });
+}
+
 /** FR-12/AD-2: add a contact, or rename+edit one by replacing its jid (the PK) inside one transaction. */
 export function saveContact(originalJid: string | null, jid: string, label: string | null, active: 0 | 1): void {
   withWriteDb((db) => {
