@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { readSettings } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -9,8 +10,13 @@ export default function Home() {
     <main className="mx-auto max-w-2xl px-6 py-12">
       <h1 className="text-2xl font-semibold">WhatsApp Downloader</h1>
       <p className="mt-1 text-sm text-neutral-500">
-        Local dashboard shell — whitelists, event log, quarantine and settings
-        views arrive in Epic 5.
+        Local dashboard shell — event log, quarantine and settings views arrive
+        later in Epic 5.
+      </p>
+      <p className="mt-4">
+        <Link href="/whitelists" className="text-sm underline">
+          Manage contact &amp; link-pattern whitelists →
+        </Link>
       </p>
 
       <section className="mt-8">

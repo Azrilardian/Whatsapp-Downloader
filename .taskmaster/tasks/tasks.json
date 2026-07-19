@@ -239,7 +239,7 @@
         "id": 19,
         "title": "[E5.1] Whitelist management UI",
         "description": "As the operator, I want to manage contacts and link-patterns from the dashboard, so I control who and what is allowed without touching the DB.",
-        "status": "pending",
+        "status": "review",
         "dependencies": [
           1
         ],
