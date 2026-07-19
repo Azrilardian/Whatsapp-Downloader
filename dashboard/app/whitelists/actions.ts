@@ -11,18 +11,25 @@ import {
   setLinkPatternActive,
 } from '@/lib/db';
 
+export type SaveResult = { ok: true } | { ok: false; error: string };
+
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? '').trim();
 }
 
-export async function saveContactAction(formData: FormData): Promise<void> {
+export async function saveContactAction(formData: FormData): Promise<SaveResult> {
   const originalJid = str(formData, 'originalJid') || null;
   const jid = str(formData, 'jid');
-  if (!jid) throw new Error('jid is required');
+  if (!jid) return { ok: false, error: 'Sender identity is required.' };
   const label = str(formData, 'label') || null;
   const active = formData.get('active') ? 1 : 0;
-  saveContact(originalJid, jid, label, active);
+  try {
+    saveContact(originalJid, jid, label, active);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Failed to save contact.' };
+  }
   revalidatePath('/whitelists');
+  return { ok: true };
 }
 
 export async function setContactActiveAction(jid: string, active: boolean): Promise<void> {
@@ -35,15 +42,20 @@ export async function deleteContactAction(jid: string): Promise<void> {
   revalidatePath('/whitelists');
 }
 
-export async function saveLinkPatternAction(formData: FormData): Promise<void> {
+export async function saveLinkPatternAction(formData: FormData): Promise<SaveResult> {
   const originalPattern = str(formData, 'originalPattern') || null;
   const pattern = str(formData, 'pattern');
-  if (!pattern) throw new Error('pattern is required');
+  if (!pattern) return { ok: false, error: 'Pattern is required.' };
   const type = str(formData, 'type') as LinkPatternType;
-  if (type !== 'domain' && type !== 'extension') throw new Error('type must be domain or extension');
+  if (type !== 'domain' && type !== 'extension') return { ok: false, error: 'Type must be domain or extension.' };
   const active = formData.get('active') ? 1 : 0;
-  saveLinkPattern(originalPattern, pattern, type, active);
+  try {
+    saveLinkPattern(originalPattern, pattern, type, active);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Failed to save link pattern.' };
+  }
   revalidatePath('/whitelists');
+  return { ok: true };
 }
 
 export async function setLinkPatternActiveAction(pattern: string, active: boolean): Promise<void> {
