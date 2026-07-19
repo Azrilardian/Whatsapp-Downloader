@@ -186,7 +186,7 @@
         "id": 15,
         "title": "[E3.7] Filing, quarantine & file integrity",
         "description": "As the operator, I want clean files filed safely and everything else quarantined, so the final store only ever holds trusted, correctly-typed files.",
-        "status": "pending",
+        "status": "review",
         "dependencies": [
           13,
           14
