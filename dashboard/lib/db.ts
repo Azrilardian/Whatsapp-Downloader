@@ -72,13 +72,20 @@ export function saveContact(originalJid: string | null, jid: string, label: stri
   withWriteDb((db) => {
     const now = nowIso();
     db.transaction(() => {
+      let createdAt = now;
       if (originalJid && originalJid !== jid) {
+        const target = db.prepare('SELECT jid FROM contacts WHERE jid = ?').get(jid) as { jid: string } | undefined;
+        if (target) throw new Error(`a contact with jid "${jid}" already exists`);
+        const original = db.prepare('SELECT created_at FROM contacts WHERE jid = ?').get(originalJid) as
+          | { created_at: string }
+          | undefined;
+        if (original) createdAt = original.created_at;
         db.prepare('DELETE FROM contacts WHERE jid = ?').run(originalJid);
       }
       db.prepare(
         `INSERT INTO contacts (jid, label, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(jid) DO UPDATE SET label = excluded.label, active = excluded.active, updated_at = excluded.updated_at`,
-      ).run(jid, label, active, now, now);
+      ).run(jid, label, active, createdAt, now);
     })();
   });
 }
@@ -105,13 +112,22 @@ export function saveLinkPattern(
   withWriteDb((db) => {
     const now = nowIso();
     db.transaction(() => {
+      let createdAt = now;
       if (originalPattern && originalPattern !== pattern) {
+        const target = db.prepare('SELECT pattern FROM link_patterns WHERE pattern = ?').get(pattern) as
+          | { pattern: string }
+          | undefined;
+        if (target) throw new Error(`a link pattern "${pattern}" already exists`);
+        const original = db.prepare('SELECT created_at FROM link_patterns WHERE pattern = ?').get(originalPattern) as
+          | { created_at: string }
+          | undefined;
+        if (original) createdAt = original.created_at;
         db.prepare('DELETE FROM link_patterns WHERE pattern = ?').run(originalPattern);
       }
       db.prepare(
         `INSERT INTO link_patterns (pattern, type, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(pattern) DO UPDATE SET type = excluded.type, active = excluded.active, updated_at = excluded.updated_at`,
-      ).run(pattern, type, active, now, now);
+      ).run(pattern, type, active, createdAt, now);
     })();
   });
 }

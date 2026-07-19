@@ -56,8 +56,14 @@ export default function WhitelistsPage() {
                       <summary className="cursor-pointer text-xs underline">Edit</summary>
                       <form action={saveContactAction} className="mt-2 flex flex-col gap-1">
                         <input type="hidden" name="originalJid" value={c.jid} />
-                        <input name="jid" defaultValue={c.jid} required className="rounded border px-2 py-1 text-xs" />
-                        <input name="label" defaultValue={c.label ?? ''} placeholder="label" className="rounded border px-2 py-1 text-xs" />
+                        <input aria-label="JID" name="jid" defaultValue={c.jid} required className="rounded border px-2 py-1 text-xs" />
+                        <input
+                          aria-label="Label"
+                          name="label"
+                          defaultValue={c.label ?? ''}
+                          placeholder="label"
+                          className="rounded border px-2 py-1 text-xs"
+                        />
                         <label className="flex items-center gap-1 text-xs">
                           <input type="checkbox" name="active" defaultChecked={c.active === 1} /> active
                         </label>
@@ -76,8 +82,8 @@ export default function WhitelistsPage() {
         <details className="mt-4">
           <summary className="cursor-pointer text-sm underline">Add contact</summary>
           <form action={saveContactAction} className="mt-2 flex max-w-sm flex-col gap-2">
-            <input name="jid" placeholder="628123456789@s.whatsapp.net" required className="rounded border px-2 py-1 text-sm" />
-            <input name="label" placeholder="label (optional)" className="rounded border px-2 py-1 text-sm" />
+            <input aria-label="JID" name="jid" placeholder="628123456789@s.whatsapp.net" required className="rounded border px-2 py-1 text-sm" />
+            <input aria-label="Label" name="label" placeholder="label (optional)" className="rounded border px-2 py-1 text-sm" />
             <label className="flex items-center gap-1 text-sm">
               <input type="checkbox" name="active" defaultChecked /> active
             </label>
@@ -121,8 +127,8 @@ export default function WhitelistsPage() {
                       <summary className="cursor-pointer text-xs underline">Edit</summary>
                       <form action={saveLinkPatternAction} className="mt-2 flex flex-col gap-1">
                         <input type="hidden" name="originalPattern" value={p.pattern} />
-                        <input name="pattern" defaultValue={p.pattern} required className="rounded border px-2 py-1 text-xs" />
-                        <select name="type" defaultValue={p.type} className="rounded border px-2 py-1 text-xs">
+                        <input aria-label="Pattern" name="pattern" defaultValue={p.pattern} required className="rounded border px-2 py-1 text-xs" />
+                        <select aria-label="Pattern type" name="type" defaultValue={p.type} className="rounded border px-2 py-1 text-xs">
                           <option value="domain">domain</option>
                           <option value="extension">extension</option>
                         </select>
@@ -144,8 +150,8 @@ export default function WhitelistsPage() {
         <details className="mt-4">
           <summary className="cursor-pointer text-sm underline">Add link pattern</summary>
           <form action={saveLinkPatternAction} className="mt-2 flex max-w-sm flex-col gap-2">
-            <input name="pattern" placeholder="build.example.com or .zip" required className="rounded border px-2 py-1 text-sm" />
-            <select name="type" defaultValue="domain" className="rounded border px-2 py-1 text-sm">
+            <input aria-label="Pattern" name="pattern" placeholder="build.example.com or .zip" required className="rounded border px-2 py-1 text-sm" />
+            <select aria-label="Pattern type" name="type" defaultValue="domain" className="rounded border px-2 py-1 text-sm">
               <option value="domain">domain</option>
               <option value="extension">extension</option>
             </select>
