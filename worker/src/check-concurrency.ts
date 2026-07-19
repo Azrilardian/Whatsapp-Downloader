@@ -54,6 +54,24 @@ try {
     await Promise.all(results);
   }
 
+  // case 1b: max_concurrent is read live, not hardcoded to the seeded default of 2.
+  {
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('1', 'max_concurrent');
+    const gates = [deferred(), deferred()];
+    const results = [0, 1].map((i) =>
+      queue.enqueue(`live-${i}@s.whatsapp.net`, async () => {
+        await gates[i]!.promise;
+      }),
+    );
+    await Promise.resolve();
+    assert.equal(queue.runningCount, 1, 'lowered max_concurrent is enforced without a restart');
+    assert.equal(queue.pendingCount, 1);
+    gates[0]!.resolve();
+    gates[1]!.resolve();
+    await Promise.all(results);
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('2', 'max_concurrent');
+  }
+
   // case 2: per_sender_rate_per_min exceeded -> same sender queues even with a free concurrency slot.
   {
     db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('1', 'per_sender_rate_per_min');
