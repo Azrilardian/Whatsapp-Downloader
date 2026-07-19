@@ -28,19 +28,21 @@ function signatureAgeHours(version: string, now: Date): number | null {
 export type ScanResult = { outcome: 'clean' } | { outcome: 'quarantined'; reason: string } | { outcome: 'held'; reason: string };
 
 function quarantine(db: Db, item: ItemRow, reason: string, now: string): ScanResult {
-  db.prepare('UPDATE items SET status = ?, scan_result = ?, updated_at = ? WHERE item_id = ?').run(
-    'quarantined',
-    reason,
-    now,
-    item.item_id,
-  );
-  db.prepare('INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)').run(
-    randomUUID(),
-    item.item_id,
-    'item_quarantined',
-    reason,
-    now,
-  );
+  db.transaction(() => {
+    db.prepare('UPDATE items SET status = ?, scan_result = ?, updated_at = ? WHERE item_id = ?').run(
+      'quarantined',
+      reason,
+      now,
+      item.item_id,
+    );
+    db.prepare('INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)').run(
+      randomUUID(),
+      item.item_id,
+      'item_quarantined',
+      reason,
+      now,
+    );
+  })();
   return { outcome: 'quarantined', reason };
 }
 
@@ -105,16 +107,19 @@ export async function scanFile(db: Db, item: ItemRow, filePath: string, scanner:
     lookup = { status: 'outage' } as const;
   }
 
-  if (lookup.status === 'outage') {
+  // outage (network/timeout) and unknown (VT couldn't confirm either way —
+  // 404, auth/quota failure, missing analysis stats) are both "no usable
+  // signal" and share the same fail-closed policy; never degraded to clean.
+  if (lookup.status === 'outage' || lookup.status === 'unknown') {
     if (vtOutagePolicy === 'hold') {
       db.prepare('INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)').run(
         randomUUID(),
         item.item_id,
         'scan_held_vt_outage',
-        null,
+        lookup.status,
         now,
       );
-      return { outcome: 'held', reason: 'virustotal unreachable, held per vt_outage_policy=hold' };
+      return { outcome: 'held', reason: `virustotal ${lookup.status}, held per vt_outage_policy=hold` };
     }
     // degrade: proceed on ClamAV's verdict alone.
     return markClean(db, item, 'clean:vt_degraded', now);

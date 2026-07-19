@@ -134,5 +134,14 @@ const cleanScanner: ScannerClient = {
   db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('hold', 'vt_outage_policy');
 }
 
+// case 10: ClamAV clean, VT can't confirm either way (unknown) -> held, same as outage, never "clean".
+{
+  const item = freshItem('b'.repeat(64));
+  const vtUnknown: VtClient = { lookupHash: async () => ({ status: 'unknown' }) };
+  const result = await scanFile(db, item, '/tmp/f.bin', cleanScanner, vtUnknown);
+  assert.equal(result.outcome, 'held');
+  assert.equal(statusOf(item.item_id).status, 'received', 'held leaves status non-terminal, unchanged');
+}
+
 db.close();
 console.log('check-scan: ok');
