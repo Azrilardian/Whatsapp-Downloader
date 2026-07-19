@@ -170,19 +170,21 @@ export type ExtractResult =
   | { ok: false; reason: 'cap_exceeded' | 'unsafe_entry' | 'extract_error' | 'rescan_failed'; detail: string };
 
 function quarantineItem(db: Db, item: ItemRow, reason: string, now: string): void {
-  db.prepare('UPDATE items SET status = ?, scan_result = ?, updated_at = ? WHERE item_id = ?').run(
-    'quarantined',
-    reason,
-    now,
-    item.item_id,
-  );
-  db.prepare('INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)').run(
-    randomUUID(),
-    item.item_id,
-    'item_quarantined',
-    reason,
-    now,
-  );
+  db.transaction(() => {
+    db.prepare('UPDATE items SET status = ?, scan_result = ?, updated_at = ? WHERE item_id = ?').run(
+      'quarantined',
+      reason,
+      now,
+      item.item_id,
+    );
+    db.prepare('INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)').run(
+      randomUUID(),
+      item.item_id,
+      'item_quarantined',
+      reason,
+      now,
+    );
+  })();
 }
 
 /**
