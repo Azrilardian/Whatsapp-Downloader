@@ -25,6 +25,8 @@ export function makeTelegramClient(botToken: string): TelegramClient {
         headers: contentType ? { 'content-type': contentType } : undefined,
       });
       if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
+      const payload = (await res.json()) as { ok: boolean; description?: string };
+      if (!payload.ok) return { ok: false, detail: payload.description ?? 'telegram reported ok: false' };
       return { ok: true };
     } catch (err) {
       return { ok: false, detail: String(err) };
@@ -48,6 +50,15 @@ export function makeTelegramClient(botToken: string): TelegramClient {
 // Telegram Bot API's own hard upload limit for sendDocument — a platform
 // constant, not an operator-tunable policy (unlike the settings-table caps).
 const TELEGRAM_MAX_FILE_BYTES = 50 * 1024 * 1024;
+// Telegram's hard message-length limit — same platform-constant reasoning as above.
+const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
+
+function archiveSummary(filenames: string[]): string {
+  const full = `Archive extracted (${filenames.length} file(s)):\n${filenames.join('\n')}`;
+  if (full.length <= TELEGRAM_MAX_MESSAGE_CHARS) return full;
+  const suffix = `\n...(${filenames.length} files total, truncated, check the dashboard)`;
+  return full.slice(0, TELEGRAM_MAX_MESSAGE_CHARS - suffix.length) + suffix;
+}
 
 export type DeliveryInput =
   | { kind: 'file'; path: string; filename: string; sizeBytes: number }
@@ -77,7 +88,12 @@ async function sendAndLog(
   successDetail: string,
   now: string,
 ): Promise<DeliveryResult> {
-  const result = await send();
+  let result: TelegramSendResult;
+  try {
+    result = await send();
+  } catch (err) {
+    result = { ok: false, detail: String(err) };
+  }
   if (result.ok) {
     logEvent(db, item, 'item_delivered', successDetail, now);
     return { delivered: true };
@@ -97,7 +113,7 @@ export function deliverStored(
   const now = nowIso();
 
   if (input.kind === 'archive') {
-    const summary = `Archive extracted (${input.filenames.length} file(s)):\n${input.filenames.join('\n')}`;
+    const summary = archiveSummary(input.filenames);
     return sendAndLog(db, item, () => client.sendMessage(chatId, summary), `archive: ${input.filenames.length} files`, now);
   }
   if (input.sizeBytes > TELEGRAM_MAX_FILE_BYTES) {
