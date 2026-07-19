@@ -8,10 +8,11 @@ import { createReceivedItem } from './items.ts';
 import { deliverStored, notifyFailure } from './telegram.ts';
 import type { TelegramClient } from './telegram.ts';
 
-// Task 17 self-check (FR-9/AD-11): a clean file <=50MB is sent as a
+// Task 17/18 self-check (FR-9/FR-10/AD-11): a clean file <=50MB is sent as a
 // document; >50MB sends the too-large text instead; an extracted archive is
-// announced as a filename summary, not one message per file; a send failure
-// is logged as an event, never touching item status.
+// announced as a filename summary, not one message per file; a quarantine/
+// failure alert is sent, never silent; a send failure (rejected or a
+// non-ok result) is logged as an event, never touching item status.
 // Run: npx tsx src/check-telegram.ts
 
 const root = mkdtempSync(join(tmpdir(), 'wadl-telegram-'));
@@ -114,7 +115,41 @@ try {
     assert.equal(statusAfter, statusBefore, 'a delivery failure never touches item status');
   }
 
-  // case 5: quarantine/failure -> a Telegram alert is sent, never silent.
+  // case 5: archive with a huge filename list -> summary truncated to Telegram's 4096-char limit.
+  {
+    const item = freshItem();
+    const sentTexts: string[] = [];
+    const client: TelegramClient = {
+      sendMessage: async (_chatId, text) => {
+        sentTexts.push(text);
+        return { ok: true };
+      },
+      sendDocument: async () => ({ ok: true }),
+    };
+    const filenames = Array.from({ length: 500 }, (_, i) => `file-${i}-with-a-somewhat-long-name.txt`);
+    const result = await deliverStored(db, item, { kind: 'archive', filenames }, client, 'chat-1');
+    assert.deepEqual(result, { delivered: true });
+    assert.ok(sentTexts[0]!.length <= 4096, 'summary never exceeds telegram message limit');
+    assert.ok(sentTexts[0]!.includes('truncated'));
+  }
+
+  // case 6: a rejecting client call (e.g. readFile failure) is still logged as delivery_failed.
+  {
+    const item = freshItem();
+    const client: TelegramClient = {
+      sendMessage: async () => {
+        throw new Error('ENOENT');
+      },
+      sendDocument: async () => {
+        throw new Error('ENOENT');
+      },
+    };
+    const result = await deliverStored(db, item, { kind: 'archive', filenames: ['x.txt'] }, client, 'chat-1');
+    assert.equal(result.delivered, false);
+    assert.equal(eventsFor(item.item_id).some((e) => e.event_type === 'delivery_failed'), true);
+  }
+
+  // case 7: quarantine/failure -> a Telegram alert is sent, never silent, and includes the source URL.
   {
     const item = freshItem();
     const sentTexts: string[] = [];
@@ -129,10 +164,11 @@ try {
     assert.deepEqual(result, { delivered: true });
     assert.equal(sentTexts.length, 1);
     assert.ok(sentTexts[0]!.includes('Eicar-Test-Signature'));
+    assert.ok(sentTexts[0]!.includes(item.source_url), 'notification includes the item source URL');
     assert.equal(eventsFor(item.item_id).some((e) => e.event_type === 'item_delivered'), true);
   }
 
-  // case 6: quarantine/failure notification send fails -> logged, item status untouched.
+  // case 8: quarantine/failure notification send fails -> logged, item status untouched.
   {
     const item = freshItem();
     const statusBefore = (db.prepare('SELECT status FROM items WHERE item_id = ?').get(item.item_id) as { status: string }).status;
@@ -145,6 +181,22 @@ try {
     assert.equal(eventsFor(item.item_id).some((e) => e.event_type === 'delivery_failed'), true);
     const statusAfter = (db.prepare('SELECT status FROM items WHERE item_id = ?').get(item.item_id) as { status: string }).status;
     assert.equal(statusAfter, statusBefore);
+  }
+
+  // case 9: notifyFailure's send() itself rejecting is still logged as delivery_failed.
+  {
+    const item = freshItem();
+    const client: TelegramClient = {
+      sendMessage: async () => {
+        throw new Error('ECONNRESET');
+      },
+      sendDocument: async () => {
+        throw new Error('ECONNRESET');
+      },
+    };
+    const result = await notifyFailure(db, item, 'network blip', client, 'chat-1');
+    assert.equal(result.delivered, false);
+    assert.equal(eventsFor(item.item_id).some((e) => e.event_type === 'delivery_failed'), true);
   }
 
   console.log('check-telegram: ok');

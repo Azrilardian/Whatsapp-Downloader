@@ -11,6 +11,10 @@ function resolveBoundedInt(raw: string, fallback: number): number {
 }
 
 const RATE_WINDOW_MS = 60_000;
+// ponytail: fixed cap on in-memory overflow — items rows are the durable
+// queue (AD-15 rebuilds them on restart), this just stops one flooding
+// sender from growing `pending` unbounded before the rate window frees up.
+const MAX_PENDING = 1000;
 
 interface QueuedTask {
   senderJid: string;
@@ -56,6 +60,9 @@ export class DownloadQueue {
   }
 
   enqueue(senderJid: string, run: () => Promise<void>): Promise<void> {
+    if (this.pending.length >= MAX_PENDING) {
+      return Promise.reject(new Error(`download queue overflow: ${MAX_PENDING} pending`));
+    }
     return new Promise((resolve, reject) => {
       this.pending.push({ senderJid, run, resolve, reject });
       this.drain();
@@ -85,18 +92,20 @@ export class DownloadQueue {
     timestamps.push(now);
     this.senderTimestamps.set(task.senderJid, timestamps);
 
-    task.run().then(
-      () => {
-        this.running -= 1;
-        task.resolve();
-        this.drain();
-      },
-      (err: unknown) => {
-        this.running -= 1;
-        task.reject(err);
-        this.drain();
-      },
-    );
+    Promise.resolve()
+      .then(() => task.run())
+      .then(
+        () => {
+          this.running -= 1;
+          task.resolve();
+          this.drain();
+        },
+        (err: unknown) => {
+          this.running -= 1;
+          task.reject(err);
+          this.drain();
+        },
+      );
   }
 
   private drain(): void {
