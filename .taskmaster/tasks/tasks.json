@@ -173,7 +173,7 @@
         "id": 14,
         "title": "[E3.6] Guarded archive extraction & re-scan",
         "description": "As the builder, I want archives expanded only after passing and under strict guards, so a bomb or path-traversal archive can't detonate or escape.",
-        "status": "pending",
+        "status": "review",
         "dependencies": [
           13
         ],
