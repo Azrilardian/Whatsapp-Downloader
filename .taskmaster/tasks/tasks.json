@@ -160,7 +160,7 @@
         "id": 13,
         "title": "[E3.5] Mandatory fail-closed scan",
         "description": "As the operator, I want every file scanned by a live, current engine before it's trusted, so 'unable to scan' is never treated as 'clean'.",
-        "status": "pending",
+        "status": "review",
         "dependencies": [
           11
         ],
