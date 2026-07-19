@@ -213,7 +213,7 @@
         "id": 17,
         "title": "[E4.1] Telegram delivery of results",
         "description": "As the operator, I want files or a clear status delivered to Telegram, so I get results without watching a screen.",
-        "status": "in-progress",
+        "status": "review",
         "dependencies": [
           15
         ],
