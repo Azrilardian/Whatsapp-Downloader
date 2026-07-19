@@ -55,7 +55,9 @@ export default function ActivityPage() {
                 <th className="pb-1">Time</th>
                 <th className="pb-1">Event</th>
                 <th className="pb-1">Sender</th>
-                <th className="pb-1">Link / filename</th>
+                <th className="pb-1">Source URL</th>
+                <th className="pb-1">Filename</th>
+                <th className="pb-1">Scan result</th>
                 <th className="pb-1">Status</th>
                 <th className="pb-1">Detail</th>
               </tr>
@@ -66,7 +68,9 @@ export default function ActivityPage() {
                   <td className="py-1.5 pr-2 text-xs text-neutral-500">{e.created_at}</td>
                   <td className="py-1.5 pr-2 font-mono text-xs">{e.event_type}</td>
                   <td className="py-1.5 pr-2 font-mono text-xs">{e.sender_jid ?? ''}</td>
-                  <td className="max-w-xs truncate py-1.5 pr-2 text-xs">{e.filename ?? e.source_url ?? ''}</td>
+                  <td className="max-w-xs truncate py-1.5 pr-2 text-xs">{e.source_url ?? ''}</td>
+                  <td className="py-1.5 pr-2 text-xs">{e.filename ?? ''}</td>
+                  <td className="py-1.5 pr-2 text-xs">{e.scan_result ?? ''}</td>
                   <td className="py-1.5 pr-2 text-xs">{e.status ?? ''}</td>
                   <td className="max-w-xs truncate py-1.5 text-xs text-neutral-500">{e.detail ?? ''}</td>
                 </tr>

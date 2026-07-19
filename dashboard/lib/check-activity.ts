@@ -16,41 +16,50 @@ const root = mkdtempSync(join(tmpdir(), 'wadl-activity-'));
 const dbPath = join(root, 'app.db');
 process.env.WADL_DB_PATH = dbPath;
 
-const setupDb = openDb(dbPath);
-runMigrations(setupDb, join(process.cwd(), '..', 'shared', 'migrations'));
-
-const now = () => new Date().toISOString();
-
-function insertItem(status: string, filename: string | null, scanResult: string | null) {
-  const itemId = randomUUID();
-  setupDb
-    .prepare(
-      `INSERT INTO items (item_id, status, sender_jid, source_url, url_hash, filename, scan_result, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(itemId, status, 'sender@s.whatsapp.net', 'https://files.example.com/f.pdf', 'hash', filename, scanResult, now(), now());
-  return itemId;
-}
-
-function insertEvent(itemId: string | null, eventType: string, detail: string | null) {
-  setupDb
-    .prepare('INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(randomUUID(), itemId, eventType, detail, now());
-}
-
-const storedItem = insertItem('stored', 'f.pdf', 'clean');
-insertEvent(storedItem, 'item_stored', '/data/final/f.pdf');
-
-const quarantinedItem = insertItem('quarantined', null, 'clamav: Eicar-Test-Signature');
-insertEvent(quarantinedItem, 'item_quarantined', 'clamav: Eicar-Test-Signature');
-
-insertEvent(null, 'worker_started', null); // system-level event, no item
-
-setupDb.close();
-
-const { listEvents, listQuarantined } = await import('./db.ts');
-
 try {
+  let setupDb: ReturnType<typeof openDb> | undefined;
+  let storedItem: string;
+  let quarantinedItem: string;
+
+  try {
+    setupDb = openDb(dbPath);
+    runMigrations(setupDb, join(process.cwd(), '..', 'shared', 'migrations'));
+
+    const now = () => new Date().toISOString();
+    const db = setupDb;
+
+    function insertItem(status: string, filename: string | null, scanResult: string | null) {
+      const itemId = randomUUID();
+      db.prepare(
+        `INSERT INTO items (item_id, status, sender_jid, source_url, url_hash, filename, scan_result, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(itemId, status, 'sender@s.whatsapp.net', 'https://files.example.com/f.pdf', 'hash', filename, scanResult, now(), now());
+      return itemId;
+    }
+
+    function insertEvent(itemId: string | null, eventType: string, detail: string | null) {
+      db.prepare('INSERT INTO events (event_id, item_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)').run(
+        randomUUID(),
+        itemId,
+        eventType,
+        detail,
+        now(),
+      );
+    }
+
+    storedItem = insertItem('stored', 'f.pdf', 'clean');
+    insertEvent(storedItem, 'item_stored', '/data/final/f.pdf');
+
+    quarantinedItem = insertItem('quarantined', null, 'clamav: Eicar-Test-Signature');
+    insertEvent(quarantinedItem, 'item_quarantined', 'clamav: Eicar-Test-Signature');
+
+    insertEvent(null, 'worker_started', null); // system-level event, no item
+  } finally {
+    setupDb?.close();
+  }
+
+  const { listEvents, listQuarantined } = await import('./db.ts');
+
   const events = listEvents();
   assert.equal(events.length, 3);
 
