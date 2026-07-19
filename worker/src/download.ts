@@ -52,6 +52,12 @@ export async function downloadToStaging(
   }
 
   const { response } = fetchResult;
+  const status = response.statusCode ?? 0;
+  if (status < 200 || status >= 300) {
+    response.resume(); // drain, discard body of the rejected response
+    return { ok: false, reason: 'fetch_error', detail: `unexpected HTTP status ${status}` };
+  }
+
   const contentType = (response.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
   if (NON_DOWNLOADABLE_CONTENT_TYPES.has(contentType)) {
     response.resume(); // drain, discard body of the rejected response

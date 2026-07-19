@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -19,6 +19,8 @@ const stagingDir = join(root, 'staging');
 
 const db = openDb(join(root, 'app.db'));
 runMigrations(db, MIGRATIONS_DIR);
+
+try {
 
 const now = () => nowIso();
 db.prepare(
@@ -105,5 +107,22 @@ function makeItem(overrides: Partial<{ item_id: string; source_url: string }> = 
   db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('209715200', 'max_download_bytes');
 }
 
-db.close();
+// case 5: non-2xx status (e.g. 404 error page served as octet-stream) -> rejected, nothing staged.
+{
+  const body = Buffer.from('not found');
+  const deps: GuardedFetchDeps = {
+    lookup: async () => ({ address: '93.184.216.34' }),
+    request: async () => fakeResponse(404, { 'content-type': 'application/octet-stream' }, body),
+  };
+  const item = makeItem({ item_id: 'item-404' });
+  const result = await downloadToStaging(db, item, stagingDir, deps);
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.reason, 'fetch_error');
+  assert.equal(existsSync(join(stagingDir, 'item-404')), false);
+}
+
 console.log('check-download: ok');
+} finally {
+  db.close();
+  rmSync(root, { recursive: true, force: true });
+}
