@@ -133,7 +133,7 @@
         "id": 11,
         "title": "[E3.3] Streaming validation & staged download",
         "description": "As the builder, I want size enforced during download and files staged first, so a lying HEAD or oversized body can't slip through or reach the final store.",
-        "status": "review",
+        "status": "done",
         "dependencies": [
           10
         ],
@@ -146,7 +146,7 @@
         "id": 12,
         "title": "[E3.4] Post-download content deduplication",
         "description": "As the operator, I want identical bytes from different URLs recognized, so the same file isn't stored twice.",
-        "status": "review",
+        "status": "done",
         "dependencies": [
           11,
           9
@@ -160,7 +160,7 @@
         "id": 13,
         "title": "[E3.5] Mandatory fail-closed scan",
         "description": "As the operator, I want every file scanned by a live, current engine before it's trusted, so 'unable to scan' is never treated as 'clean'.",
-        "status": "review",
+        "status": "done",
         "dependencies": [
           11
         ],
@@ -173,7 +173,7 @@
         "id": 14,
         "title": "[E3.6] Guarded archive extraction & re-scan",
         "description": "As the builder, I want archives expanded only after passing and under strict guards, so a bomb or path-traversal archive can't detonate or escape.",
-        "status": "review",
+        "status": "done",
         "dependencies": [
           13
         ],
@@ -186,7 +186,7 @@
         "id": 15,
         "title": "[E3.7] Filing, quarantine & file integrity",
         "description": "As the operator, I want clean files filed safely and everything else quarantined, so the final store only ever holds trusted, correctly-typed files.",
-        "status": "review",
+        "status": "done",
         "dependencies": [
           13,
           14
