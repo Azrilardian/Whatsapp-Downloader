@@ -49,6 +49,17 @@ export interface SettingRow {
   updated_at: string;
 }
 
+// FR-13/FR-14/AD-1: worker-owned connection status + re-pair QR (migration 002).
+export const CONNECTION_STATUSES = ['connecting', 'open', 'close', 'logged_out'] as const;
+export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
+
+export interface WorkerStateRow {
+  id: 1;
+  connection_status: ConnectionStatus;
+  qr_data_url: string | null; // set while a fresh pairing QR is pending; null once open/logged_out
+  updated_at: string;
+}
+
 /** Keys seeded into `settings` by migration 001 (AD-17). */
 export const SETTING_KEYS = [
   'max_download_bytes',

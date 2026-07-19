@@ -17,6 +17,8 @@ import { useSqliteAuthState } from './auth-store.ts';
 import { BAILEYS_AUTH_DIR } from './paths.ts';
 import { evaluateLinkGate, isSenderWhitelisted } from './gates.ts';
 import { createReceivedItem } from './items.ts';
+import { makeTelegramClient } from './telegram.ts';
+import { upsertWorkerState } from './worker-state.ts';
 
 const AUTH_DB_PATH = join(BAILEYS_AUTH_DIR, 'auth.db');
 export const QR_IMAGE_PATH = join(BAILEYS_AUTH_DIR, 'pairing-qr.png');
@@ -42,6 +44,23 @@ function clearAuthStore(): void {
   for (const suffix of ['', '-wal', '-shm']) {
     rmSync(AUTH_DB_PATH + suffix, { force: true });
   }
+}
+
+// FR-14/addendum §E: a session-invalidated state must reach the operator over
+// Telegram, not just the event log — but a missing/misconfigured secret must
+// never crash the always-on worker.
+async function alertRePairRequired(reason: string): Promise<void> {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!botToken || !chatId) {
+    console.error('re-pair required but TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set — alert not sent');
+    return;
+  }
+  const result = await makeTelegramClient(botToken).sendMessage(
+    chatId,
+    `WhatsApp session requires re-pairing (${reason}). Scan the new QR in the dashboard.`,
+  );
+  if (!result.ok) console.error('re-pair alert failed:', result.detail);
 }
 
 export type ReconnectDecision =
@@ -71,6 +90,7 @@ export function classifyDisconnect(
  */
 export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promise<WASocket> {
   mkdirSync(BAILEYS_AUTH_DIR, { recursive: true });
+  upsertWorkerState(db, 'connecting', null);
 
   const auth = useSqliteAuthState(AUTH_DB_PATH);
   const { version } = await fetchLatestBaileysVersion();
@@ -122,11 +142,19 @@ export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promis
         .catch((err: unknown) => {
           console.error('failed to render pairing QR image:', err);
         });
+      // FR-14: the dashboard renders the QR as an image, not a terminal print —
+      // a data URL is the one representation both a <img> tag and the file need.
+      QRCode.toDataURL(qr)
+        .then((dataUrl) => upsertWorkerState(db, 'connecting', dataUrl))
+        .catch((err: unknown) => {
+          console.error('failed to render pairing QR data URL:', err);
+        });
     }
 
     if (connection === 'open') {
       console.log('WhatsApp session connected');
       recordEvent(db, 'connection_open', 'session established');
+      upsertWorkerState(db, 'open', null);
     }
 
     if (connection === 'close') {
@@ -138,8 +166,20 @@ export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promis
 
       switch (decision.action) {
         case 'stop':
-          console.log('session logged out — auto-reconnect stopped, re-pair required');
+          // addendum §E: loggedOut does not auto-reconnect to the old
+          // session, but a fresh QR must still reach the dashboard — clear
+          // auth state and restart pairing from scratch, same as a bad
+          // session, plus the Telegram alert FR-14 requires.
+          console.log('session logged out — auto-reconnect stopped, re-pairing from scratch');
           recordEvent(db, 're_pair_required', 'logged out');
+          upsertWorkerState(db, 'logged_out', null);
+          void alertRePairRequired('logged out').catch((err: unknown) => {
+            console.error('re-pair alert failed:', err);
+          });
+          clearAuthStore();
+          void startWhatsAppSession(db, 0).catch((err) => {
+            console.error('WhatsApp restart after logout failed:', err);
+          });
           break;
 
         case 'clear_and_restart':
@@ -161,12 +201,14 @@ export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promis
         case 'give_up':
           console.log(`reconnect cap (${MAX_RECONNECT_ATTEMPTS}) reached — giving up`);
           recordEvent(db, 'reconnect_cap_reached', `after ${reconnectAttempt} attempts`);
+          upsertWorkerState(db, 'close', null);
           break;
 
         case 'backoff':
           console.log(
             `connection closed, reconnecting in ${decision.delayMs}ms (attempt ${reconnectAttempt + 1}/${MAX_RECONNECT_ATTEMPTS})...`,
           );
+          upsertWorkerState(db, 'close', null);
           setTimeout(() => {
             void startWhatsAppSession(db, reconnectAttempt + 1).catch((err) => {
               console.error('WhatsApp reconnection failed:', err);

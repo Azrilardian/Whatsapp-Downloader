@@ -9,6 +9,7 @@ import {
   type LinkPatternRow,
   type LinkPatternType,
   type SettingRow,
+  type WorkerStateRow,
 } from '@wadl/shared';
 
 // AD-2/AD-4: the dashboard reads pipeline state and writes only the
@@ -46,6 +47,11 @@ function withReadDb<T>(fallback: T, run: (db: Db) => T): T {
   } finally {
     db.close();
   }
+}
+
+/** FR-13/FR-14: worker-owned connection status + re-pair QR, read-only here (AD-4). */
+export function readWorkerState(): WorkerStateRow | null {
+  return withReadDb(null, (db) => (db.prepare('SELECT * FROM worker_state WHERE id = 1').get() as WorkerStateRow) ?? null);
 }
 
 export function readSettings(): SettingRow[] | null {
