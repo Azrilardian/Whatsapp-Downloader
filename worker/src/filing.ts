@@ -8,11 +8,11 @@ import { FINAL_DIR, QUARANTINE_DIR } from './paths.ts';
 
 const MAX_FILENAME_LENGTH = 200;
 
-/** FR-18: no path separators, no control characters, no overlong names. */
+/** FR-18: no path separators, no internal whitespace, no control characters, no dot-segments, no overlong names. */
 export function sanitizeFilename(raw: string): string {
   // eslint-disable-next-line no-control-regex
-  const stripped = raw.replace(/[/\\]/g, '_').replace(/[\x00-\x1f\x7f]/g, '').trim();
-  const safe = stripped.length > 0 ? stripped : 'file';
+  const stripped = raw.replace(/[/\\]/g, '_').replace(/[\x00-\x1f\x7f]/g, '').replace(/\s/g, '').trim();
+  const safe = stripped.length > 0 && !/^\.+$/.test(stripped) ? stripped : 'file';
   return safe.length > MAX_FILENAME_LENGTH ? safe.slice(0, MAX_FILENAME_LENGTH) : safe;
 }
 
@@ -22,12 +22,20 @@ function deriveFilename(item: ItemRow): string {
   return ext ? `${item.item_id}.${ext}` : item.item_id;
 }
 
+// file-type reports JPEG's ext as "jpg" regardless of which JPEG alias the
+// URL uses; normalize before comparing so .jpeg/.jpe aren't false mismatches.
+const EXT_ALIASES: Record<string, string> = { jpeg: 'jpg', jpe: 'jpg' };
+
+function normalizeExt(ext: string): string {
+  return EXT_ALIASES[ext] ?? ext;
+}
+
 function urlExtension(sourceUrl: string): string | null {
   try {
     const pathname = new URL(sourceUrl).pathname;
     const base = pathname.split('/').pop() ?? '';
     const dot = base.lastIndexOf('.');
-    return dot > 0 ? base.slice(dot + 1).toLowerCase() : null;
+    return dot > 0 ? normalizeExt(base.slice(dot + 1).toLowerCase()) : null;
   } catch {
     return null;
   }
@@ -75,13 +83,22 @@ export async function fileItem(
     return quarantineFile(db, item, sourcePath, quarantineDir, filename, mismatchReason, now);
   }
 
+  let destPath: string;
   try {
     const destDir = join(finalDir, item.item_id);
     await mkdir(destDir, { recursive: true });
-    const destPath = join(destDir, filename);
+    destPath = join(destDir, filename);
     await rename(sourcePath, destPath);
     await chmod(destPath, 0o644); // non-executable
+  } catch (err) {
+    // the move itself failed, so sourcePath is still where quarantineFile expects it.
+    return quarantineFile(db, item, sourcePath, quarantineDir, filename, `filing failed: ${String(err)}`, now);
+  }
 
+  // The move already succeeded — a DB failure here must not fall back to
+  // quarantineFile, which would try to re-move a file that's no longer at
+  // sourcePath and then mislabel an actually-stored file as quarantined.
+  db.transaction(() => {
     db.prepare('UPDATE items SET status = ?, filename = ?, updated_at = ? WHERE item_id = ?').run(
       'stored',
       filename,
@@ -95,10 +112,8 @@ export async function fileItem(
       destPath,
       now,
     );
-    return { outcome: 'stored', path: destPath };
-  } catch (err) {
-    return quarantineFile(db, item, sourcePath, quarantineDir, filename, `filing failed: ${String(err)}`, now);
-  }
+  })();
+  return { outcome: 'stored', path: destPath };
 }
 
 async function quarantineFile(
