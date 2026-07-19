@@ -114,6 +114,40 @@ try {
     assert.equal(statusAfter, statusBefore, 'a delivery failure never touches item status');
   }
 
+  // case 5: archive with a huge filename list -> summary truncated to Telegram's 4096-char limit.
+  {
+    const item = freshItem();
+    const sentTexts: string[] = [];
+    const client: TelegramClient = {
+      sendMessage: async (_chatId, text) => {
+        sentTexts.push(text);
+        return { ok: true };
+      },
+      sendDocument: async () => ({ ok: true }),
+    };
+    const filenames = Array.from({ length: 500 }, (_, i) => `file-${i}-with-a-somewhat-long-name.txt`);
+    const result = await deliverStored(db, item, { kind: 'archive', filenames }, client, 'chat-1');
+    assert.deepEqual(result, { delivered: true });
+    assert.ok(sentTexts[0]!.length <= 4096, 'summary never exceeds telegram message limit');
+    assert.ok(sentTexts[0]!.includes('truncated'));
+  }
+
+  // case 6: a rejecting client call (e.g. readFile failure) is still logged as delivery_failed.
+  {
+    const item = freshItem();
+    const client: TelegramClient = {
+      sendMessage: async () => {
+        throw new Error('ENOENT');
+      },
+      sendDocument: async () => {
+        throw new Error('ENOENT');
+      },
+    };
+    const result = await deliverStored(db, item, { kind: 'archive', filenames: ['x.txt'] }, client, 'chat-1');
+    assert.equal(result.delivered, false);
+    assert.equal(eventsFor(item.item_id).some((e) => e.event_type === 'delivery_failed'), true);
+  }
+
   console.log('check-telegram: ok');
 } finally {
   db.close();

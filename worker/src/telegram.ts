@@ -25,6 +25,8 @@ export function makeTelegramClient(botToken: string): TelegramClient {
         headers: contentType ? { 'content-type': contentType } : undefined,
       });
       if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
+      const payload = (await res.json()) as { ok: boolean; description?: string };
+      if (!payload.ok) return { ok: false, detail: payload.description ?? 'telegram reported ok: false' };
       return { ok: true };
     } catch (err) {
       return { ok: false, detail: String(err) };
@@ -48,6 +50,15 @@ export function makeTelegramClient(botToken: string): TelegramClient {
 // Telegram Bot API's own hard upload limit for sendDocument — a platform
 // constant, not an operator-tunable policy (unlike the settings-table caps).
 const TELEGRAM_MAX_FILE_BYTES = 50 * 1024 * 1024;
+// Telegram's hard message-length limit — same platform-constant reasoning as above.
+const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
+
+function archiveSummary(filenames: string[]): string {
+  const full = `Archive extracted (${filenames.length} file(s)):\n${filenames.join('\n')}`;
+  if (full.length <= TELEGRAM_MAX_MESSAGE_CHARS) return full;
+  const suffix = `\n...(${filenames.length} files total, truncated, check the dashboard)`;
+  return full.slice(0, TELEGRAM_MAX_MESSAGE_CHARS - suffix.length) + suffix;
+}
 
 export type DeliveryInput =
   | { kind: 'file'; path: string; filename: string; sizeBytes: number }
@@ -81,13 +92,16 @@ export async function deliverStored(
   const now = nowIso();
 
   let result: TelegramSendResult;
-  if (input.kind === 'archive') {
-    const summary = `Archive extracted (${input.filenames.length} file(s)):\n${input.filenames.join('\n')}`;
-    result = await client.sendMessage(chatId, summary);
-  } else if (input.sizeBytes > TELEGRAM_MAX_FILE_BYTES) {
-    result = await client.sendMessage(chatId, 'file ready, too large to send directly, check the dashboard');
-  } else {
-    result = await client.sendDocument(chatId, input.path, input.filename);
+  try {
+    if (input.kind === 'archive') {
+      result = await client.sendMessage(chatId, archiveSummary(input.filenames));
+    } else if (input.sizeBytes > TELEGRAM_MAX_FILE_BYTES) {
+      result = await client.sendMessage(chatId, 'file ready, too large to send directly, check the dashboard');
+    } else {
+      result = await client.sendDocument(chatId, input.path, input.filename);
+    }
+  } catch (err) {
+    result = { ok: false, detail: String(err) };
   }
 
   if (result.ok) {
