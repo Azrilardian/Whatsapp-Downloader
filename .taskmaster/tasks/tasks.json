@@ -146,7 +146,7 @@
         "id": 12,
         "title": "[E3.4] Post-download content deduplication",
         "description": "As the operator, I want identical bytes from different URLs recognized, so the same file isn't stored twice.",
-        "status": "pending",
+        "status": "review",
         "dependencies": [
           11,
           9
