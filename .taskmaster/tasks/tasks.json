@@ -252,7 +252,7 @@
         "id": 20,
         "title": "[E5.2] Event log & quarantine views",
         "description": "As the operator, I want to see everything the pipeline has done, so I can audit outcomes and review quarantined files.",
-        "status": "in-progress",
+        "status": "review",
         "dependencies": [
           1
         ],

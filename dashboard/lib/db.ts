@@ -5,6 +5,7 @@ import {
   openDb,
   type ContactRow,
   type Db,
+  type ItemRow,
   type LinkPatternRow,
   type LinkPatternType,
   type SettingRow,
@@ -37,34 +38,62 @@ function withWriteDb<T>(run: (db: Db) => T): T {
   }
 }
 
-export function readSettings(): SettingRow[] | null {
+function withReadDb<T>(fallback: T, run: (db: Db) => T): T {
   const db = openDashboardDb();
-  if (!db) return null;
+  if (!db) return fallback;
   try {
-    return db.prepare('SELECT key, value, updated_at FROM settings ORDER BY key').all() as SettingRow[];
+    return run(db);
   } finally {
     db.close();
   }
+}
+
+export function readSettings(): SettingRow[] | null {
+  return withReadDb(null, (db) => db.prepare('SELECT key, value, updated_at FROM settings ORDER BY key').all() as SettingRow[]);
 }
 
 export function listContacts(): ContactRow[] {
-  const db = openDashboardDb();
-  if (!db) return [];
-  try {
-    return db.prepare('SELECT * FROM contacts ORDER BY jid').all() as ContactRow[];
-  } finally {
-    db.close();
-  }
+  return withReadDb([], (db) => db.prepare('SELECT * FROM contacts ORDER BY jid').all() as ContactRow[]);
 }
 
 export function listLinkPatterns(): LinkPatternRow[] {
-  const db = openDashboardDb();
-  if (!db) return [];
-  try {
-    return db.prepare('SELECT * FROM link_patterns ORDER BY pattern').all() as LinkPatternRow[];
-  } finally {
-    db.close();
-  }
+  return withReadDb([], (db) => db.prepare('SELECT * FROM link_patterns ORDER BY pattern').all() as LinkPatternRow[]);
+}
+
+/** FR-13/AD-1: every Event with enough item context (contact, link, filename, scan result) to audit an outcome without a join in the caller. */
+export interface EventWithContext {
+  event_id: string;
+  item_id: string | null;
+  event_type: string;
+  detail: string | null;
+  created_at: string;
+  sender_jid: string | null;
+  source_url: string | null;
+  filename: string | null;
+  scan_result: string | null;
+  status: string | null;
+}
+
+export function listEvents(limit = 200): EventWithContext[] {
+  return withReadDb([], (db) =>
+    db
+      .prepare(
+        `SELECT e.event_id, e.item_id, e.event_type, e.detail, e.created_at,
+                i.sender_jid, i.source_url, i.filename, i.scan_result, i.status
+         FROM events e
+         LEFT JOIN items i ON i.item_id = e.item_id
+         ORDER BY e.created_at DESC
+         LIMIT ?`,
+      )
+      .all(limit) as EventWithContext[],
+  );
+}
+
+/** FR-13: quarantined items listed distinctly from delivered/stored ones. */
+export function listQuarantined(): ItemRow[] {
+  return withReadDb([], (db) =>
+    db.prepare("SELECT * FROM items WHERE status = 'quarantined' ORDER BY updated_at DESC").all() as ItemRow[],
+  );
 }
 
 /** FR-12/AD-2: add a contact, or rename+edit one by replacing its jid (the PK) inside one transaction. */
