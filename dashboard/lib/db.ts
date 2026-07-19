@@ -51,7 +51,13 @@ function withReadDb<T>(fallback: T, run: (db: Db) => T): T {
 
 /** FR-13/FR-14: worker-owned connection status + re-pair QR, read-only here (AD-4). */
 export function readWorkerState(): WorkerStateRow | null {
-  return withReadDb(null, (db) => (db.prepare('SELECT * FROM worker_state WHERE id = 1').get() as WorkerStateRow) ?? null);
+  return withReadDb(null, (db) => {
+    const exists = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'worker_state'")
+      .get();
+    if (!exists) return null;
+    return (db.prepare('SELECT * FROM worker_state WHERE id = 1').get() as WorkerStateRow) ?? null;
+  });
 }
 
 export function readSettings(): SettingRow[] | null {

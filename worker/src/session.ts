@@ -130,6 +130,11 @@ export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promis
     }
   });
 
+  // Guards the QR data-URL render below: it resolves asynchronously, and
+  // without this it can still write 'connecting' after open/close already
+  // committed the terminal state.
+  let qrStillCurrent = true;
+
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
@@ -145,19 +150,24 @@ export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promis
       // FR-14: the dashboard renders the QR as an image, not a terminal print —
       // a data URL is the one representation both a <img> tag and the file need.
       QRCode.toDataURL(qr)
-        .then((dataUrl) => upsertWorkerState(db, 'connecting', dataUrl))
+        .then((dataUrl) => {
+          if (!qrStillCurrent) return;
+          upsertWorkerState(db, 'connecting', dataUrl);
+        })
         .catch((err: unknown) => {
           console.error('failed to render pairing QR data URL:', err);
         });
     }
 
     if (connection === 'open') {
+      qrStillCurrent = false;
       console.log('WhatsApp session connected');
       recordEvent(db, 'connection_open', 'session established');
       upsertWorkerState(db, 'open', null);
     }
 
     if (connection === 'close') {
+      qrStillCurrent = false;
       const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
       recordEvent(db, 'connection_close', `status=${statusCode ?? 'unknown'}`);
       auth.close();
