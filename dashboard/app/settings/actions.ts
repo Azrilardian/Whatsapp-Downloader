@@ -11,6 +11,9 @@ export async function saveSettingsAction(formData: FormData): Promise<SaveResult
   for (const field of SETTINGS_FIELDS) {
     const raw = String(formData.get(field.key) ?? '').trim();
     if (field.kind === 'int') {
+      if (raw === '') {
+        return { ok: false, error: `${field.label} is required.` };
+      }
       const parsed = Number(raw);
       if (!Number.isSafeInteger(parsed) || parsed < field.min) {
         return { ok: false, error: `${field.label} must be an integer >= ${field.min}.` };
