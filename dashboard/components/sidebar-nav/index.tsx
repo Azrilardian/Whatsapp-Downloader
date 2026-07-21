@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/', label: 'Home' },
   { href: '/whitelists', label: 'Whitelists' },
   { href: '/activity', label: 'Activity' },
+  { href: '/settings', label: 'Settings' },
 ];
 
 export function SidebarNav(props: SidebarNavProps) {

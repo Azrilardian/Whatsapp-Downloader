@@ -64,6 +64,17 @@ export function readSettings(): SettingRow[] | null {
   return withReadDb(null, (db) => db.prepare('SELECT key, value, updated_at FROM settings ORDER BY key').all() as SettingRow[]);
 }
 
+/** FR-19/AD-17: bulk-update policy values; worker reads them live on its next relevant operation (no restart). */
+export function saveSettings(values: Record<string, string>): void {
+  withWriteDb((db) => {
+    const now = nowIso();
+    const stmt = db.prepare('UPDATE settings SET value = ?, updated_at = ? WHERE key = ?');
+    db.transaction(() => {
+      for (const [key, value] of Object.entries(values)) stmt.run(value, now, key);
+    })();
+  });
+}
+
 export function listContacts(): ContactRow[] {
   return withReadDb([], (db) => db.prepare('SELECT * FROM contacts ORDER BY jid').all() as ContactRow[]);
 }
