@@ -1,0 +1,31 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run typecheck
+
+  deploy:
+    needs: typecheck
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install -g @railway/cli
+      - run: railway up --service wadl-staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

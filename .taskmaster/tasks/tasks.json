@@ -280,7 +280,7 @@
         "id": 22,
         "title": "[E5.4] Policy settings",
         "description": "As the operator, I want to tune the pipeline's safety limits from the dashboard, so I can adjust behavior without editing code or restarting the worker.",
-        "status": "pending",
+        "status": "review",
         "dependencies": [
           1
         ],
