@@ -26,6 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: npm install -g @railway/cli
-      - run: railway up --service wadl
+      - run: railway up --service Whatsapp-Downloader
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
