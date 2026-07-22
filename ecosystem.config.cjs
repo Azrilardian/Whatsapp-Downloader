@@ -22,7 +22,7 @@ module.exports = {
       name: 'wadl-dashboard',
       cwd: `${__dirname}/dashboard`,
       script: 'npx',
-      args: ['next', 'start', '--hostname', '0.0.0.0', '--port', process.env.PORT || '3000'],
+      args: ['next', 'start', '--hostname', '0.0.0.0', '--port', '3000'],
       autorestart: true,
       min_uptime: 10_000,
       max_restarts: 50,
