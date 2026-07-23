@@ -211,9 +211,25 @@ export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promis
           break;
 
         case 'give_up':
-          console.log(`reconnect cap (${MAX_RECONNECT_ATTEMPTS}) reached — giving up`);
+          // Exhausting the backoff cap is usually just a missed QR scan, not
+          // an invalid session (that's 'stop'/'clear_and_restart' above) — it
+          // must never be a silent dead-end requiring a manual redeploy to
+          // recover (FR-14/FR-15 fail-safe intent). Alert the operator and
+          // retry fresh after a cooldown, giving a new QR and a new attempt
+          // window, indefinitely.
+          console.log(`reconnect cap (${MAX_RECONNECT_ATTEMPTS}) reached — cooling down, retrying with a fresh QR`);
           recordEvent(db, 'reconnect_cap_reached', `after ${reconnectAttempt} attempts`);
           upsertWorkerState(db, 'close', null);
+          void alertRePairRequired('reconnect attempts exhausted — retrying shortly with a new QR').catch(
+            (err: unknown) => {
+              console.error('re-pair alert failed:', err);
+            },
+          );
+          setTimeout(() => {
+            void startWhatsAppSession(db, 0).catch((err) => {
+              console.error('WhatsApp restart after giving up failed:', err);
+            });
+          }, MAX_DELAY_MS);
           break;
 
         case 'backoff':
