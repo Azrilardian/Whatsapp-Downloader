@@ -288,6 +288,32 @@
         "details": "Settings page edits: size/archive caps, redirect hops, scanner-signature freshness, max_concurrent, per_sender_rate, VT flag policy (hard-fail/warn), VT outage policy (hold/degrade), backup cadence, event retention. Persist to settings table (seeded defaults); worker honors on next relevant operation, no restart. Secrets (Telegram/VT keys) NOT shown/editable - stay in .env. Dashboard writes only settings/contacts/link_patterns. FR-19; AD-17/9/2. Read the contract before coding: _bmad-output/specs/spec-whatsapp-downloader/SPEC.md (+ companions _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md, _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md). Full story + ACs in _bmad-output/planning-artifacts/epics.md.",
         "testStrategy": "GIVEN the Settings page WHEN I edit a policy value THEN it persists to settings and the worker honors it on the next relevant operation with no restart; secrets are never shown/editable; dashboard writes only operator-config tables.",
         "subtasks": []
+      },
+      {
+        "id": 23,
+        "title": "[E2.4] Group gate",
+        "description": "As the operator, I want a whitelisted WhatsApp group to admit any participant's messages, so I don't have to individually whitelist every group member.",
+        "details": "Sender gate branches on Baileys message shape: key.participant absent -> 1:1, check remoteJid in active contacts; key.participant present -> group message, pass if remoteJid in active groups OR participant in active contacts (OR-semantics, not AND). Both whitelist reads stay live-per-message, no caching. FR-19; AD-18. Read the contract before coding: _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md (+ addendum.md), _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md (AD-18). Full story + ACs to be finalized in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "GIVEN a group message WHEN the group is active-whitelisted THEN any participant passes regardless of individual contact-whitelist status; WHEN the group is not whitelisted but the participant is THEN it still passes; WHEN neither is whitelisted THEN it is rejected; an inactive group entry is treated as not whitelisted; 1:1 messages are resolved via the contact whitelist only. Verified via worker/src/check-group-gate.ts.",
+        "status": "review",
+        "dependencies": [
+          6
+        ],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 24,
+        "title": "[E5.5] Group whitelist management UI",
+        "description": "As the operator, I want to manage WhatsApp group whitelist entries from the dashboard, so I control which groups admit messages without touching the DB.",
+        "details": "Dashboard CRUD for groups (group_jid + label + active), same pattern as existing contacts/link_patterns management; persists to SQLite via a new groups table, separate from contacts (not a kind discriminator). Dashboard writes ONLY contacts/groups/link_patterns/settings, never pipeline state. FR-19 (extends FR-12 pattern); AD-2, AD-14. Read the contract before coding: _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md (+ addendum.md), _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md (AD-2, AD-14). Full story + ACs to be finalized in _bmad-output/planning-artifacts/epics.md.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          19
+        ],
+        "priority": "medium",
+        "subtasks": []
       }
     ],
     "metadata": {
