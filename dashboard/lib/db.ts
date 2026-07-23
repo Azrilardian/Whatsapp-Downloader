@@ -5,6 +5,7 @@ import {
   openDb,
   type ContactRow,
   type Db,
+  type GroupRow,
   type ItemRow,
   type LinkPatternRow,
   type LinkPatternType,
@@ -81,6 +82,11 @@ export function listContacts(): ContactRow[] {
 
 export function listLinkPatterns(): LinkPatternRow[] {
   return withReadDb([], (db) => db.prepare('SELECT * FROM link_patterns ORDER BY pattern').all() as LinkPatternRow[]);
+}
+
+/** FR-19/AD-18: group whitelist — separate table from `contacts` (PRD OQ-15). */
+export function listGroups(): GroupRow[] {
+  return withReadDb([], (db) => db.prepare('SELECT * FROM groups ORDER BY group_jid').all() as GroupRow[]);
 }
 
 /** FR-13/AD-1: every Event with enough item context (contact, link, filename, scan result) to audit an outcome without a join in the caller. */
@@ -175,6 +181,43 @@ export function setContactActive(jid: string, active: 0 | 1): void {
 export function deleteContact(jid: string): void {
   withWriteDb((db) => {
     db.prepare('DELETE FROM contacts WHERE jid = ?').run(jid);
+  });
+}
+
+/** FR-19/AD-18: add a group, or rename+edit one by replacing its group_jid (the PK) inside one transaction. */
+export function saveGroup(originalGroupJid: string | null, groupJid: string, label: string | null, active: 0 | 1): void {
+  withWriteDb((db) => {
+    const now = nowIso();
+    db.transaction(() => {
+      let createdAt = now;
+      if (originalGroupJid && originalGroupJid !== groupJid) {
+        const target = db.prepare('SELECT group_jid FROM groups WHERE group_jid = ?').get(groupJid) as
+          | { group_jid: string }
+          | undefined;
+        if (target) throw new Error(`a group with group_jid "${groupJid}" already exists`);
+        const original = db.prepare('SELECT created_at FROM groups WHERE group_jid = ?').get(originalGroupJid) as
+          | { created_at: string }
+          | undefined;
+        if (original) createdAt = original.created_at;
+        db.prepare('DELETE FROM groups WHERE group_jid = ?').run(originalGroupJid);
+      }
+      db.prepare(
+        `INSERT INTO groups (group_jid, label, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(group_jid) DO UPDATE SET label = excluded.label, active = excluded.active, updated_at = excluded.updated_at`,
+      ).run(groupJid, label, active, createdAt, now);
+    })();
+  });
+}
+
+export function setGroupActive(groupJid: string, active: 0 | 1): void {
+  withWriteDb((db) => {
+    db.prepare('UPDATE groups SET active = ?, updated_at = ? WHERE group_jid = ?').run(active, nowIso(), groupJid);
+  });
+}
+
+export function deleteGroup(groupJid: string): void {
+  withWriteDb((db) => {
+    db.prepare('DELETE FROM groups WHERE group_jid = ?').run(groupJid);
   });
 }
 
