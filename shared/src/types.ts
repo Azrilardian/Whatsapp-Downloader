@@ -33,6 +33,15 @@ export interface ContactRow {
   updated_at: string;
 }
 
+// FR-19/AD-18: group whitelist — separate table from `contacts` (PRD OQ-15).
+export interface GroupRow {
+  group_jid: string; // normalized Baileys group JID (PK)
+  label: string | null;
+  active: 0 | 1;
+  created_at: string;
+  updated_at: string;
+}
+
 export type LinkPatternType = 'domain' | 'extension';
 
 export interface LinkPatternRow {

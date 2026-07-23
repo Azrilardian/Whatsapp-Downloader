@@ -15,7 +15,7 @@ import type { Db } from '@wadl/shared';
 import { nowIso } from '@wadl/shared';
 import { useSqliteAuthState } from './auth-store.ts';
 import { BAILEYS_AUTH_DIR } from './paths.ts';
-import { evaluateLinkGate, isSenderWhitelisted } from './gates.ts';
+import { evaluateLinkGate, isMessageSenderWhitelisted } from './gates.ts';
 import { createReceivedItem } from './items.ts';
 import { makeTelegramClient } from './telegram.ts';
 import { upsertWorkerState } from './worker-state.ts';
@@ -104,17 +104,19 @@ export async function startWhatsAppSession(db: Db, reconnectAttempt = 0): Promis
 
   sock.ev.on('creds.update', auth.saveCreds);
 
-  // FR-1/AD-2: sender gate — evaluated live on every incoming message so a
-  // whitelist edit takes effect on the next message, no restart (AD-5).
+  // FR-1/FR-19/AD-2/AD-18: sender gate — evaluated live on every incoming
+  // message so a whitelist edit takes effect on the next message, no
+  // restart (AD-5).
   sock.ev.on('messages.upsert', ({ messages, type }) => {
     if (type !== 'notify') return; // skip history-sync replays, not live traffic
     for (const msg of messages) {
       if (msg.key.fromMe) continue;
-      const rawJid = msg.key.participant ?? msg.key.remoteJid;
-      if (!rawJid) continue;
-      const senderJid = jidNormalizedUser(rawJid);
+      if (!msg.key.remoteJid) continue;
+      const remoteJid = jidNormalizedUser(msg.key.remoteJid);
+      const participant = msg.key.participant ? jidNormalizedUser(msg.key.participant) : null;
+      const senderJid = participant ?? remoteJid;
 
-      if (!isSenderWhitelisted(db, senderJid)) {
+      if (!isMessageSenderWhitelisted(db, { remoteJid, participant })) {
         // Silently ignored: no download, no notification, no items row —
         // deliberately not logged per-message to avoid flooding the event log.
         continue;
