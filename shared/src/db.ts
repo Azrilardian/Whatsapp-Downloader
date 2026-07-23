@@ -1,6 +1,19 @@
+import { join } from 'node:path';
 import Database from 'better-sqlite3';
 
 export type Db = Database.Database;
+
+/**
+ * AD-1/AD-14: worker and dashboard must resolve the exact same SQLite file —
+ * it's the only seam. `WADL_DB_PATH` wins outright; otherwise
+ * `WADL_DATA_DIR/app.db`; otherwise `defaultDataDir/app.db` (each side's own
+ * repo-relative fallback for local dev, since the two processes don't share
+ * a cwd). One implementation so the two sides can't silently diverge on
+ * which env var they honor.
+ */
+export function resolveDbPath(defaultDataDir: string): string {
+  return process.env.WADL_DB_PATH ?? join(process.env.WADL_DATA_DIR ?? defaultDataDir, 'app.db');
+}
 
 export interface OpenDbOptions {
   /** Open read-only (no pragma writes attempted beyond busy_timeout). */
