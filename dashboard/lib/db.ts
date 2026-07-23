@@ -5,6 +5,7 @@ import {
   openDb,
   type ContactRow,
   type Db,
+  type GroupRow,
   type ItemRow,
   type LinkPatternRow,
   type LinkPatternType,
@@ -83,6 +84,11 @@ export function listLinkPatterns(): LinkPatternRow[] {
   return withReadDb([], (db) => db.prepare('SELECT * FROM link_patterns ORDER BY pattern').all() as LinkPatternRow[]);
 }
 
+/** FR-19/AD-18: group whitelist — separate table from `contacts` (PRD OQ-15). */
+export function listGroups(): GroupRow[] {
+  return withReadDb([], (db) => db.prepare('SELECT * FROM groups ORDER BY group_jid').all() as GroupRow[]);
+}
+
 /** FR-13/AD-1: every Event with enough item context (contact, link, filename, scan result) to audit an outcome without a join in the caller. */
 export interface EventWithContext {
   event_id: string;
@@ -143,39 +149,83 @@ export function getTodayStatusCounts(): TodayStatusCounts {
   });
 }
 
-/** FR-12/AD-2: add a contact, or rename+edit one by replacing its jid (the PK) inside one transaction. */
-export function saveContact(originalJid: string | null, jid: string, label: string | null, active: 0 | 1): void {
+// FR-12/FR-19/AD-2: contacts and groups share one PK-rename-and-upsert shape
+// (pk, label, active) — the only difference is which table/column holds the
+// PK. `link_patterns` is NOT folded in here: its third column is `type`, not
+// `label`, a genuinely different shape.
+type PkLabelActiveTable = 'contacts' | 'groups';
+const PK_COLUMN: Record<PkLabelActiveTable, string> = { contacts: 'jid', groups: 'group_jid' };
+const ENTITY_NOUN: Record<PkLabelActiveTable, string> = { contacts: 'contact', groups: 'group' };
+
+function savePkLabelActiveEntry(
+  table: PkLabelActiveTable,
+  originalPk: string | null,
+  pk: string,
+  label: string | null,
+  active: 0 | 1,
+): void {
+  const pkColumn = PK_COLUMN[table];
   withWriteDb((db) => {
     const now = nowIso();
     db.transaction(() => {
       let createdAt = now;
-      if (originalJid && originalJid !== jid) {
-        const target = db.prepare('SELECT jid FROM contacts WHERE jid = ?').get(jid) as { jid: string } | undefined;
-        if (target) throw new Error(`a contact with jid "${jid}" already exists`);
-        const original = db.prepare('SELECT created_at FROM contacts WHERE jid = ?').get(originalJid) as
+      if (originalPk && originalPk !== pk) {
+        const target = db.prepare(`SELECT ${pkColumn} FROM ${table} WHERE ${pkColumn} = ?`).get(pk) as
+          | Record<string, string>
+          | undefined;
+        if (target) throw new Error(`a ${ENTITY_NOUN[table]} with ${pkColumn} "${pk}" already exists`);
+        const original = db.prepare(`SELECT created_at FROM ${table} WHERE ${pkColumn} = ?`).get(originalPk) as
           | { created_at: string }
           | undefined;
         if (original) createdAt = original.created_at;
-        db.prepare('DELETE FROM contacts WHERE jid = ?').run(originalJid);
+        db.prepare(`DELETE FROM ${table} WHERE ${pkColumn} = ?`).run(originalPk);
       }
       db.prepare(
-        `INSERT INTO contacts (jid, label, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(jid) DO UPDATE SET label = excluded.label, active = excluded.active, updated_at = excluded.updated_at`,
-      ).run(jid, label, active, createdAt, now);
+        `INSERT INTO ${table} (${pkColumn}, label, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(${pkColumn}) DO UPDATE SET label = excluded.label, active = excluded.active, updated_at = excluded.updated_at`,
+      ).run(pk, label, active, createdAt, now);
     })();
   });
 }
 
-export function setContactActive(jid: string, active: 0 | 1): void {
+function setPkLabelActiveEntryActive(table: PkLabelActiveTable, pk: string, active: 0 | 1): void {
+  const pkColumn = PK_COLUMN[table];
   withWriteDb((db) => {
-    db.prepare('UPDATE contacts SET active = ?, updated_at = ? WHERE jid = ?').run(active, nowIso(), jid);
+    db.prepare(`UPDATE ${table} SET active = ?, updated_at = ? WHERE ${pkColumn} = ?`).run(active, nowIso(), pk);
   });
 }
 
-export function deleteContact(jid: string): void {
+function deletePkLabelActiveEntry(table: PkLabelActiveTable, pk: string): void {
+  const pkColumn = PK_COLUMN[table];
   withWriteDb((db) => {
-    db.prepare('DELETE FROM contacts WHERE jid = ?').run(jid);
+    db.prepare(`DELETE FROM ${table} WHERE ${pkColumn} = ?`).run(pk);
   });
+}
+
+/** FR-12/AD-2: add a contact, or rename+edit one by replacing its jid (the PK) inside one transaction. */
+export function saveContact(originalJid: string | null, jid: string, label: string | null, active: 0 | 1): void {
+  savePkLabelActiveEntry('contacts', originalJid, jid, label, active);
+}
+
+export function setContactActive(jid: string, active: 0 | 1): void {
+  setPkLabelActiveEntryActive('contacts', jid, active);
+}
+
+export function deleteContact(jid: string): void {
+  deletePkLabelActiveEntry('contacts', jid);
+}
+
+/** FR-19/AD-18: add a group, or rename+edit one by replacing its group_jid (the PK) inside one transaction. */
+export function saveGroup(originalGroupJid: string | null, groupJid: string, label: string | null, active: 0 | 1): void {
+  savePkLabelActiveEntry('groups', originalGroupJid, groupJid, label, active);
+}
+
+export function setGroupActive(groupJid: string, active: 0 | 1): void {
+  setPkLabelActiveEntryActive('groups', groupJid, active);
+}
+
+export function deleteGroup(groupJid: string): void {
+  deletePkLabelActiveEntry('groups', groupJid);
 }
 
 /** FR-12/AD-2: add a link pattern, or rename+edit one by replacing its pattern text (the PK) inside one transaction. */
