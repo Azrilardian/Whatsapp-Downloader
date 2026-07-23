@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { saveContactAction } from "@/app/whitelists/actions";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -16,16 +15,20 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { ContactFormDialogProps } from "./types";
+import type { WhitelistFormDialogProps } from "./types";
 
-export function ContactFormDialog(props: ContactFormDialogProps) {
-  const { contact, trigger } = props;
+function capitalize(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+export function WhitelistFormDialog(props: WhitelistFormDialogProps) {
+  const { entry, fields, actions, trigger } = props;
   const [open, setOpen] = useState(false);
 
   async function handleSubmit(formData: FormData) {
-    const result = await saveContactAction(formData);
+    const result = await actions.save(formData);
     if (result.ok) {
-      toast.success(contact ? "Contact updated" : "Contact added");
+      toast.success(`${capitalize(fields.entityLabel)} ${entry ? "updated" : "added"}`);
       setOpen(false);
     } else {
       toast.error(result.error);
@@ -37,35 +40,26 @@ export function ContactFormDialog(props: ContactFormDialogProps) {
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{contact ? "Edit contact" : "Add contact"}</DialogTitle>
+          <DialogTitle>{entry ? `Edit ${fields.entityLabel}` : `Add ${fields.entityLabel}`}</DialogTitle>
         </DialogHeader>
         <form action={handleSubmit} className="flex flex-col gap-3 mt-2">
-          <input type="hidden" name="originalJid" value={contact?.jid ?? ""} />
+          <input type="hidden" name={fields.originalIdFieldName} value={entry?.id ?? ""} />
           <div className="flex flex-col gap-1.5 mb-2">
-            <Label htmlFor="jid">Sender identity</Label>
+            <Label htmlFor={fields.idFieldName}>{fields.idLabel}</Label>
             <Input
-              id="jid"
-              name="jid"
-              defaultValue={contact?.jid ?? ""}
-              placeholder="+62 8xx-xxxx-xxxx"
+              id={fields.idFieldName}
+              name={fields.idFieldName}
+              defaultValue={entry?.id ?? ""}
+              placeholder={fields.idPlaceholder}
               required
             />
           </div>
           <div className="flex flex-col gap-1.5 mb-2">
             <Label htmlFor="label">Label</Label>
-            <Input
-              id="label"
-              name="label"
-              defaultValue={contact?.label ?? ""}
-              placeholder="e.g. Aji — build host"
-            />
+            <Input id="label" name="label" defaultValue={entry?.label ?? ""} placeholder={fields.labelPlaceholder} />
           </div>
           <div className="flex items-center gap-2">
-            <Checkbox
-              id="active"
-              name="active"
-              defaultChecked={contact ? contact.active === 1 : true}
-            />
+            <Checkbox id="active" name="active" defaultChecked={entry ? entry.active === 1 : true} />
             <Label htmlFor="active" className="text-sm font-normal">
               active
             </Label>
