@@ -310,7 +310,8 @@
         "testStrategy": "",
         "status": "pending",
         "dependencies": [
-          19
+          19,
+          23
         ],
         "priority": "medium",
         "subtasks": []
