@@ -307,8 +307,8 @@
         "title": "[E5.5] Group whitelist management UI",
         "description": "As the operator, I want to manage WhatsApp group whitelist entries from the dashboard, so I control which groups admit messages without touching the DB.",
         "details": "Dashboard CRUD for groups (group_jid + label + active), same pattern as existing contacts/link_patterns management; persists to SQLite via a new groups table, separate from contacts (not a kind discriminator). Dashboard writes ONLY contacts/groups/link_patterns/settings, never pipeline state. FR-19 (extends FR-12 pattern); AD-2, AD-14. Read the contract before coding: _bmad-output/planning-artifacts/prds/prd-mini-project-2026-07-17/prd.md (+ addendum.md), _bmad-output/planning-artifacts/architecture/architecture-mini-project-2026-07-17/ARCHITECTURE-SPINE.md (AD-2, AD-14). Full story + ACs to be finalized in _bmad-output/planning-artifacts/epics.md.",
-        "testStrategy": "",
-        "status": "pending",
+        "testStrategy": "GIVEN the dashboard WHEN I add/edit/activate/deactivate/remove a group entry THEN every field (group identity, label, active) is editable and persists; dashboard writes only contacts/groups/link_patterns/settings. Verified via npm run typecheck + npm run build (dashboard).",
+        "status": "review",
         "dependencies": [
           19,
           23
