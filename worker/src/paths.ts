@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { resolveDbPath } from '@wadl/shared';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -30,5 +31,5 @@ export const BAILEYS_AUTH_DIR = join(DATA_ROOT, 'baileys-auth');
 // the roots above so a backup run is never mistaken for pipeline state.
 export const BACKUPS_DIR = process.env.WADL_BACKUPS_DIR ?? join(DATA_ROOT, 'backups');
 
-export const DB_PATH = process.env.WADL_DB_PATH ?? join(DATA_ROOT, 'app.db');
+export const DB_PATH = resolveDbPath(join(repoRoot, 'data'));
 export const MIGRATIONS_DIR = join(repoRoot, 'shared', 'migrations');

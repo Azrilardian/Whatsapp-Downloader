@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import {
   nowIso,
   openDb,
+  resolveDbPath,
   type ContactRow,
   type Db,
   type GroupRow,
@@ -16,9 +17,13 @@ import {
 // AD-2/AD-4: the dashboard reads pipeline state and writes only the
 // operator-config tables (contacts, link_patterns, settings). It never
 // issues DDL and never creates the DB file — the worker owns schema and
-// creation.
-const DB_PATH =
-  process.env.WADL_DB_PATH ?? join(process.cwd(), '..', 'data', 'app.db');
+// creation. Path resolution is shared with the worker (resolveDbPath) so
+// the two sides can't silently diverge on which env var they honor — they
+// did, once: this fallback used to check only WADL_DB_PATH, missing
+// WADL_DATA_DIR entirely, so on a deploy that sets only WADL_DATA_DIR (e.g.
+// Railway's volume mount) the dashboard was reading a different, empty
+// path than the one the worker actually wrote to.
+const DB_PATH = resolveDbPath(join(process.cwd(), '..', 'data'));
 
 export function openDashboardDb(): Db | null {
   if (!existsSync(DB_PATH)) return null;
